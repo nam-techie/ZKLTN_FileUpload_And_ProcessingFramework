@@ -195,7 +195,8 @@ FORM pai_selection_screen.
       lv_reversed = reverse( lv_full_path ).
       SPLIT lv_reversed AT '.' INTO lv_ext lv_dummy.
       lv_ext = reverse( lv_ext ).
-      TRANSLATE lv_ext TO UPPER CASE.
+*      TRANSLATE lv_ext TO UPPER CASE.   !OBSOLETE SYNTAX
+      lv_ext = to_upper( lv_ext ).
 
       IF lv_ext <> p_ftype.
         MESSAGE w027(zmsg_gr23) WITH lv_ext p_ftype.

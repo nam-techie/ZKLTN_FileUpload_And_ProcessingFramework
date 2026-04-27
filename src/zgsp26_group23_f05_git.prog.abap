@@ -115,14 +115,14 @@ FORM save_log USING pv_ftype            TYPE char10
     ls_log_head-file_name   = lv_filename.
     ls_log_head-total_sheet = lines( gt_master_sheets ).
     ls_log_head-category    = gc_stored_file.
-    ls_log_item-log_id      = lv_uuid.
-    ls_log_item-item_no     = 0.
-*    ls_log_item-message     = 'RETRY_DATA_CONTEXT'.
-    ls_log_item-raw_data    = pv_file_base64.
-*    ls_log_item-erdat       = sy-datum.
-*    ls_log_item-erzet       = sy-uzeit.
-*    ls_log_item-ernam       = sy-uname.
-    APPEND ls_log_item TO lt_log_item.
+
+    lt_log_item = VALUE #( ( log_id      = lv_uuid
+                             item_no     = 0
+                             raw_data    = pv_file_base64 ) ).
+*    ls_log_item-log_id      = lv_uuid.
+*    ls_log_item-item_no     = 0.
+*    ls_log_item-raw_data    = pv_file_base64.
+*    APPEND ls_log_item TO lt_log_item.
 
   ELSE.
 
@@ -159,14 +159,13 @@ FORM save_log USING pv_ftype            TYPE char10
     ls_log_head-succ_rec = ls_log_head-total_rec - ls_log_head-err_rec.
 
     " Main blob item (item 0): full file Base64 for retry / reopen.
-    ls_log_item-log_id   = lv_uuid.
-    ls_log_item-item_no  = 0.
-*    ls_log_item-message  = 'RETRY_DATA_CONTEXT'.
-    ls_log_item-raw_data = pv_file_base64.
-*    ls_log_item-erdat    = sy-datum.
-*    ls_log_item-erzet    = sy-uzeit.
-*    ls_log_item-ernam    = sy-uname.
-    APPEND ls_log_item TO lt_log_item.
+    lt_log_item = VALUE #( ( log_id      = lv_uuid
+                         item_no     = 0
+                         raw_data    = pv_file_base64 ) ).
+*    ls_log_item-log_id   = lv_uuid.
+*    ls_log_item-item_no  = 0.
+*    ls_log_item-raw_data = pv_file_base64.
+*    APPEND ls_log_item TO lt_log_item.
   ENDIF.
 
   " INSERT new header/items, or UPDATE header + replace item rows when continuing same log.
@@ -270,7 +269,7 @@ FORM process_save_data.
   DATA: lv_current_log_id TYPE zlog_header-log_id.
   lv_current_log_id = gv_current_log_id.
 
-*  " Optional: sync ALV grid back to GT_EXCEL_RAW before persist (reverse map).
+*  " Optional: sync ALV grid back to GT_data_RAW before persist (reverse map).
 *  PERFORM reverse_map_to_raw.
 
   " Push current worksheet into GT_MASTER_SHEETS before DB write.
@@ -329,7 +328,7 @@ FORM update_database_log USING pv_log_id TYPE zlog_header-log_id.
   SORT gt_master_sheets BY page_no.
   READ TABLE gt_master_sheets ASSIGNING FIELD-SYMBOL(<ls_current>) WITH KEY page_no = gv_current_page BINARY SEARCH.
   IF sy-subrc = 0.
-    <ls_current>-excel_raw = gt_excel_raw.
+    <ls_current>-data_raw = gt_data_raw.
     <ls_current>-error_log = gt_error_log.
   ENDIF.
 
@@ -350,9 +349,9 @@ FORM update_database_log USING pv_log_id TYPE zlog_header-log_id.
   " Remove previous line-level error items; re-insert from current memory (clean slate).
   DELETE FROM zlog_item WHERE log_id = pv_log_id AND item_no > 0.
 
-  DATA: lt_new_items TYPE TABLE OF zlog_item,
-        lv_item_no   TYPE i VALUE 1,
-        ls_master    TYPE gty_master_sheet.
+  DATA: ls_master    TYPE gty_master_sheet.
+*        lt_new_items TYPE TABLE OF zlog_item,
+*        lv_item_no   TYPE i VALUE 1,
 
 *  LOOP AT gt_master_sheets INTO ls_master.
 *    LOOP AT ls_master-error_log INTO DATA(ls_err).
@@ -371,9 +370,9 @@ FORM update_database_log USING pv_log_id TYPE zlog_header-log_id.
 *    ENDLOOP.
 *  ENDLOOP.
 
-  IF lt_new_items IS NOT INITIAL.
-    INSERT zlog_item FROM TABLE lt_new_items.
-  ENDIF.
+*  IF lt_new_items IS NOT INITIAL.
+*    INSERT zlog_item FROM TABLE lt_new_items.
+*  ENDIF.
 
   " Recompute header TOTAL_REC / ERR_REC / SUCC_REC from all sheets.
   SELECT SINGLE mandt,

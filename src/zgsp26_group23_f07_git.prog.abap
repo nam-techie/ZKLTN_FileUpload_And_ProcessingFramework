@@ -107,7 +107,7 @@ FORM continue_from_raw_preview.
       DATA: lv_d_idx TYPE i.
       lv_d_idx = gc_data_start.
       WHILE lv_d_idx <= lines( gt_preview_lines ).
-        INSERT VALUE gty_dirty_line( page_no = 1 excel_row = lv_d_idx ) INTO TABLE gt_row_dirty.
+        INSERT VALUE gty_dirty_line( page_no = 1 data_row = lv_d_idx ) INTO TABLE gt_row_dirty.
         lv_d_idx = lv_d_idx + 1.
       ENDWHILE.
     ELSE.
@@ -127,7 +127,7 @@ FORM continue_from_raw_preview.
         READ TABLE gt_preview_lines    INDEX lv_row INTO lv_curr_line.
 
         IF lv_curr_line <> lv_snap_line.
-          INSERT VALUE gty_dirty_line( page_no = 1 excel_row = lv_row ) INTO TABLE gt_row_dirty.
+          INSERT VALUE gty_dirty_line( page_no = 1 data_row = lv_row ) INTO TABLE gt_row_dirty.
           gv_data_dirty = abap_on.
         ENDIF.
         lv_row = lv_row + 1.

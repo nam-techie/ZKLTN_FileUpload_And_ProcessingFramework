@@ -102,8 +102,8 @@ ENDFORM.
 *& plain preview text editor read-only flag.
 *&---------------------------------------------------------------------*
 FORM switch_alv_mode.
-  DATA: lt_fcat  TYPE lvc_t_fcat,
-        lv_ready TYPE i,
+  DATA: lt_fcat   TYPE lvc_t_fcat,
+        lv_ready  TYPE i,
         lv_locked TYPE abap_bool VALUE abap_off.
 
   IF gv_edit_mode = abap_on.
@@ -313,7 +313,7 @@ FORM prepare_master_alv_data.
 
   DATA: lt_comp TYPE cl_abap_structdescr=>component_table.
 
-  " 1) Dynamic structure: EXCEL_ROW, STATUS_ICON, data columns, ERR_COUNT.
+  " 1) Dynamic structure: DATA_ROW, STATUS_ICON, data columns, ERR_COUNT.
   PERFORM build_master_struct CHANGING lt_comp.
 
   IF gv_error = abap_on.
@@ -339,7 +339,7 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form BUILD_MASTER_STRUCT
-*& Component table: EXCEL_ROW, STATUS_ICON, typed columns from header
+*& Component table: DATA_ROW, STATUS_ICON, typed columns from header
 *& tech names (current sheet), then ERR_COUNT (integer).
 *&---------------------------------------------------------------------*
 FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_table.
@@ -351,7 +351,7 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
   DATA: lo_type TYPE REF TO cl_abap_typedescr,
         lo_elem TYPE REF TO cl_abap_elemdescr.
 
-  pt_comp = VALUE #( ( name = 'EXCEL_ROW' type = cl_abap_elemdescr=>get_i( ) )
+  pt_comp = VALUE #( ( name = 'DATA_ROW' type = cl_abap_elemdescr=>get_i( ) )
                      ( name = 'STATUS_ICON' type = cl_abap_elemdescr=>get_c( 4 ) )
                      ).
 
@@ -364,7 +364,7 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
     RETURN.
   ENDIF.
 
-  DATA ls_hdr TYPE gty_excel_header.
+  DATA ls_hdr TYPE gty_data_header.
 
   LOOP AT ls_master-header_list INTO ls_hdr.
 
@@ -459,7 +459,7 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form BUILD_VERTICAL_DATA
-*& For selected Excel row: scan headers, map values, DDIC list, date F4,
+*& For selected data row: scan headers, map values, DDIC list, date F4,
 *& aggregate GT_ERROR_LOG lines into ERROR_MSG / cell colors.
 *&---------------------------------------------------------------------*
 FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
@@ -478,23 +478,26 @@ FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
   CLEAR: lt_values, lv_val, lv_dh.
   pv_has_error = abap_off.
 
-  IF gv_selected_excel_row > 0.
-    DATA(lv_tabix) = gv_selected_excel_row - gc_data_start + 1.
-    READ TABLE <gfs_master> ASSIGNING FIELD-SYMBOL(<lfs_d_row>) INDEX lv_tabix.
+  IF gv_selected_data_row > 0.
+    DATA(lv_tabix) = gv_selected_data_row - gc_data_start + 1.
+*    READ TABLE <gfs_master> ASSIGNING FIELD-SYMBOL(<lfs_d_row>) INDEX lv_tabix.
+    READ TABLE <gfs_data> ASSIGNING FIELD-SYMBOL(<lfs_d_row>) INDEX lv_tabix.
 
     IF sy-subrc = 0.
       LOOP AT gt_header_list INTO DATA(ls_hdr).
 
-        lv_base_name = ls_hdr-tech_name.
+*        lv_base_name = ls_hdr-tech_name.
+*
+*        PERFORM handle_duplicated_tech_name USING lv_base_name
+*                                   lt_comp
+*                         CHANGING  lv_new_name.
+*        ls_comp-name = lv_new_name.
+*        APPEND ls_comp TO lt_comp.
+*        ls_hdr-tech_name = lv_new_name.
 
-        PERFORM handle_duplicated_tech_name USING lv_base_name
-                                   lt_comp
-                         CHANGING  lv_new_name.
-        ls_comp-name = lv_new_name.
-        APPEND ls_comp TO lt_comp.
-        ls_hdr-tech_name = lv_new_name.
-
-        ASSIGN COMPONENT ls_hdr-tech_name OF STRUCTURE <lfs_d_row> TO FIELD-SYMBOL(<lfs_val>).
+*        "col_pos need to be plus 2 because <gfs_master> has more 2 column at begining than the real col pos at gt_header_list
+        ASSIGN COMPONENT ls_hdr-col_pos OF STRUCTURE <lfs_d_row> TO FIELD-SYMBOL(<lfs_val>).
+*        ASSIGN COMPONENT ls_hdr-tech_name OF STRUCTURE <lfs_d_row> TO FIELD-SYMBOL(<lfs_val>).
         IF sy-subrc = 0.
 
           ls_vert = VALUE gty_vertical_data(
@@ -530,7 +533,7 @@ FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
           CLEAR lv_full_error.
 
           LOOP AT gt_error_log INTO DATA(ls_err)
-               WHERE row_index = gv_selected_excel_row
+               WHERE row_index = gv_selected_data_row
                  AND col_pos   = ls_hdr-col_pos.
             IF lv_full_error IS INITIAL.
               lv_full_error = ls_err-message.
@@ -642,10 +645,10 @@ FORM refresh_detail_grid USING pv_has_error TYPE abap_bool.
   go_grid_detail->get_frontend_layout( IMPORTING es_layout = ls_layo_dt ).
 
   ls_layo_dt-grid_title = COND string(
-    WHEN gv_selected_excel_row = 0
+    WHEN gv_selected_data_row = 0
       THEN |{ TEXT-038 }|
     ELSE
-      |{ TEXT-039 } { gv_selected_excel_row }|
+      |{ TEXT-039 } { gv_selected_data_row }|
   ).
 
   go_grid_detail->set_frontend_layout( ls_layo_dt ).
@@ -686,7 +689,7 @@ FORM change_page_logic.
   PERFORM load_page_to_workspace USING lv_page.
   PERFORM refresh_tabs_toolbar.
 
-  gv_selected_excel_row = 0.
+  gv_selected_data_row = 0.
 
   IF gv_dref_master IS BOUND.
     FREE gv_dref_master.
@@ -736,7 +739,7 @@ FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
   ps_layo-grid_title = TEXT-026.
 
   pt_fcat = VALUE #(
-    ( fieldname = 'EXCEL_ROW'
+    ( fieldname = 'DATA_ROW'
       coltext   = TEXT-027
       col_pos   = 1
 *      hotspot   = abap_on
@@ -860,7 +863,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form BUILD_MASTER_DATA
 *& Single pass over <gfs_data>: MOVE-CORRESPONDING into master line shape,
-*& then fill EXCEL_ROW, ERR_COUNT, STATUS_ICON (red/yellow/green).
+*& then fill DATA_ROW, ERR_COUNT, STATUS_ICON (red/yellow/green).
 *&---------------------------------------------------------------------*
 FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
 
@@ -885,12 +888,13 @@ FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
     DATA(lv_real_row) = sy-tabix + gc_data_start - 1.
 
     " Fast copy: identically named components from data row to master row;
-    " custom columns (EXCEL_ROW, STATUS_ICON, ERR_COUNT) set explicitly below.
-    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>.
+    " custom columns (DATA_ROW, STATUS_ICON, ERR_COUNT) set explicitly below.
+*    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>.
+    <lfs_m_row> = CORRESPONDING #( <lfs_d_row> ).
 *    <lfs_d_row> = <lfs_m_row>.
 
     " Custom columns (once per output row).
-    ASSIGN COMPONENT 'EXCEL_ROW' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
+    ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
     <lfs_val> = lv_real_row.
 
     " Error count for this logical spreadsheet row.
@@ -913,7 +917,7 @@ FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
 *        <lfs_stat> = icon_led_green.
 *      ENDIF.
 
-      IF line_exists( gt_row_dirty[ page_no = gv_current_page excel_row = lv_real_row ] ).
+      IF line_exists( gt_row_dirty[ page_no = gv_current_page data_row = lv_real_row ] ).
         <lfs_stat> = icon_led_yellow.
       ELSEIF lv_err_count > 0.
         <lfs_stat> = icon_led_red.
@@ -971,5 +975,7 @@ FORM show_detail_alv_error_popup USING pv_error_msg TYPE string.
     EXCEPTIONS
       break_off    = 1
       OTHERS       = 2.
+  IF sy-subrc <> 0.                                       "#EC CI_SUBRC
+  ENDIF.
 
 ENDFORM.

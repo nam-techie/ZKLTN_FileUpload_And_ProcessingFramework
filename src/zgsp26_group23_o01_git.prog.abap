@@ -36,7 +36,7 @@ MODULE init_0100 OUTPUT.
     IF go_cont_main IS NOT BOUND.
       PERFORM init_ui_components.
       PERFORM show_raw_preview_ui.
-      gv_selected_excel_row = 0.
+      gv_selected_data_row = 0.
     ENDIF.
   ELSEIF go_cont_main IS NOT BOUND AND p_stor <> abap_on.
 
@@ -49,7 +49,7 @@ MODULE init_0100 OUTPUT.
     PERFORM load_page_to_workspace USING 1.
     PERFORM display_main_alvs.
 
-    gv_selected_excel_row = 0.
+    gv_selected_data_row = 0.
   ENDIF.
 
   IF gv_plain_preview = abap_off.

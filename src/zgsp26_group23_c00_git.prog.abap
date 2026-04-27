@@ -59,15 +59,15 @@ CLASS lcl_alv_events IMPLEMENTATION.
 
   METHOD on_master_double_click.
     FIELD-SYMBOLS: <lfs_master_row> TYPE any,
-                   <lfs_excel_row>  TYPE any.
+                   <lfs_data_row>  TYPE any.
 
-    " Map grid row index to master row and read EXCEL_ROW (logical sheet row).
+    " Map grid row index to master row and read DATA_ROW (logical sheet row).
     READ TABLE <gfs_master> ASSIGNING <lfs_master_row> INDEX e_row-index.
 *    READ TABLE <gfs_data> ASSIGNING <lfs_master_row> INDEX e_row-index.
     IF sy-subrc = 0.
-      ASSIGN COMPONENT 'EXCEL_ROW' OF STRUCTURE <lfs_master_row> TO <lfs_excel_row>.
+      ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_master_row> TO <lfs_data_row>.
       IF sy-subrc = 0.
-        gv_selected_excel_row = <lfs_excel_row>.
+        gv_selected_data_row = <lfs_data_row>.
         " Refresh both detail panels for the new selection.
         PERFORM refresh_detail_alvs.
       ENDIF.
@@ -149,7 +149,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
     IF sy-subrc <> 0 OR lv_date_sel IS INITIAL. RETURN. ENDIF.
 
     " Write chosen date into <gfs_data> row that feeds master ALV preparation.
-    DATA(lv_tabix) = gv_selected_excel_row - gc_data_start + 1.
+    DATA(lv_tabix) = gv_selected_data_row - gc_data_start + 1.
 
     IF <gfs_data> IS NOT ASSIGNED.
       MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
@@ -164,10 +164,10 @@ CLASS lcl_alv_events IMPLEMENTATION.
 
     <lfs_fld> = lv_date_sel.
     gv_data_dirty = abap_on.
-    INSERT VALUE #( page_no = gv_current_page excel_row = gv_selected_excel_row ) INTO TABLE gt_row_dirty.
+    INSERT VALUE #( page_no = gv_current_page data_row = gv_selected_data_row ) INTO TABLE gt_row_dirty.
 
     " Mirror manual edit path: row validation, master rebuild, grids refresh.
-    PERFORM revalidate_single_row USING lv_tabix gv_selected_excel_row.
+    PERFORM revalidate_single_row USING lv_tabix gv_selected_data_row.
 
     PERFORM prepare_master_alv_data.
 

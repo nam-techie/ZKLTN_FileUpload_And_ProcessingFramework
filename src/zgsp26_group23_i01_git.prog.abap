@@ -127,7 +127,7 @@ FORM process_view_raw.
     PERFORM switch_alv_mode.
   ENDIF.
   gv_plain_preview = abap_on.
-  gv_selected_excel_row = 0.
+  gv_selected_data_row = 0.
   " Rebuild plain-text lines from current sheet (F08) before showing editor.
   PERFORM rebuild_raw_string_from_alv USING lv_parse_ftype.
   PERFORM show_raw_preview_ui.
@@ -356,8 +356,8 @@ FORM process_exit_screen.
 
   PERFORM free_alv_objects.
 
-  CLEAR: gv_plain_preview, gt_preview_lines, gv_data_dirty, gv_selected_excel_row, gv_current_log_id,
-         gv_current_page, gt_master_sheets, gt_header_list, gt_excel_raw, gt_error_log.
+  CLEAR: gv_plain_preview, gt_preview_lines, gv_data_dirty, gv_selected_data_row, gv_current_log_id,
+         gv_current_page, gt_master_sheets, gt_header_list, gt_data_raw, gt_error_log.
   LEAVE TO SCREEN 0.
 ENDFORM.
 

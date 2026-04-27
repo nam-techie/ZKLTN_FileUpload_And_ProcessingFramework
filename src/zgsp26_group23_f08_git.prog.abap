@@ -4,7 +4,7 @@
 
 *&---------------------------------------------------------------------*
 *& Purpose
-*&  Workspace sync between dynamic ALV (<GFS_DATA>), per-sheet GT_EXCEL_RAW
+*&  Workspace sync between dynamic ALV (<GFS_DATA>), per-sheet GT_data_RAW
 *&  in GT_MASTER_SHEETS, and plain-text GT_PREVIEW_LINES for CSV/TXT export.
 *&---------------------------------------------------------------------*
 
@@ -15,11 +15,11 @@
 *&---------------------------------------------------------------------*
 *& Form REVERSE_MAP_TO_RAW
 *& Walk <gfs_data> and current sheet header_list: update or append cells in
-*& <lfs_master>-excel_raw so raw coordinates match latest ALV edits (for log JSON).
+*& <lfs_master>-data_raw so raw coordinates match latest ALV edits (for log JSON).
 *&---------------------------------------------------------------------*
 FORM reverse_map_to_raw.
 
-  DATA: ls_raw     TYPE gty_excel_cell,
+  DATA: ls_raw     TYPE gty_data_cell,
         lv_tabix   TYPE i,
         lv_raw_idx TYPE i.
 
@@ -45,7 +45,7 @@ FORM reverse_map_to_raw.
   LOOP AT <gfs_data> ASSIGNING <lfs_line>.
     lv_tabix = sy-tabix.
 
-    " Logical Excel row index (matches GT_EXCEL_RAW row coordinate).
+    " Logical data row index (matches GT_data_RAW row coordinate).
     DATA(lv_real_row) = lv_tabix + gc_data_start - 1.
 
     " Each column from this sheet's header map (col_pos aligns with dynamic structure).
@@ -59,10 +59,11 @@ FORM reverse_map_to_raw.
         " Normalize to string for storage in coordinate table.
         DATA: lv_string_val TYPE string.
         lv_string_val = <lfs_value>.
-        CONDENSE lv_string_val.
+*        CONDENSE lv_string_val. !OBSOLETE SYNTAX
+        lv_string_val = condense( val = lv_string_val ).
 
         " Look up existing raw cell on this sheet.
-        READ TABLE <lfs_master>-excel_raw INTO ls_raw
+        READ TABLE <lfs_master>-data_raw INTO ls_raw
              WITH KEY row = lv_real_row
                       col = ls_header-col_pos.
         lv_raw_idx = sy-tabix.
@@ -71,7 +72,7 @@ FORM reverse_map_to_raw.
           " CASE A: cell exists -> MODIFY only when value changed.
           IF ls_raw-value <> lv_string_val.
             ls_raw-value = lv_string_val.
-            MODIFY <lfs_master>-excel_raw FROM ls_raw INDEX lv_raw_idx.
+            MODIFY <lfs_master>-data_raw FROM ls_raw INDEX lv_raw_idx.
           ENDIF.
 
         ELSE.
@@ -81,7 +82,7 @@ FORM reverse_map_to_raw.
             ls_raw-row   = lv_real_row.
             ls_raw-col   = ls_header-col_pos.
             ls_raw-value = lv_string_val.
-            APPEND ls_raw TO <lfs_master>-excel_raw.
+            APPEND ls_raw TO <lfs_master>-data_raw.
           ENDIF.
         ENDIF.
 
@@ -92,7 +93,7 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form FLUSH_WS_TO_MASTER
-*& Persist workspace (<gfs_data> -> per-sheet excel_raw via reverse_map)
+*& Persist workspace (<gfs_data> -> per-sheet data_raw via reverse_map)
 *& into gt_master_sheets. Call before switching tabs or on save.
 *&---------------------------------------------------------------------*
 FORM flush_ws_to_master USING pv_page_no TYPE i.
@@ -141,7 +142,7 @@ FORM load_page_to_workspace USING pv_page_no TYPE i.
   " Expose sheet data to globals used by ALV / processing
   gv_current_page = ls_sheet-page_no.
   gt_header_list  = ls_sheet-header_list.
-  gt_excel_raw    = ls_sheet-excel_raw.
+  gt_data_raw    = ls_sheet-data_raw.
   gt_error_log    = ls_sheet-error_log.
   gv_dref_table   = ls_sheet-dref_data.
 
@@ -161,7 +162,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form REBUILD_RAW_STRING_FROM_ALV
 *& FLUSH current page; rebuild GT_PREVIEW_LINES (descr row, rule row, then
-*& data rows from excel_raw with CSV/TXT delimiter and padding).
+*& data rows from data_raw with CSV/TXT delimiter and padding).
 *&---------------------------------------------------------------------*
 FORM rebuild_raw_string_from_alv USING pv_ftype TYPE char10.
 
@@ -242,8 +243,8 @@ FORM rebuild_raw_string_from_alv USING pv_ftype TYPE char10.
   APPEND lv_line TO gt_preview_lines.
 
   " From row 3 onward: data lines from the sheet's coordinate table
-  " Sort cells by row/column so we can emit one text line per Excel row
-  DATA(lt_raw_sorted) = ls_master-excel_raw.
+  " Sort cells by row/column so we can emit one text line per data row
+  DATA(lt_raw_sorted) = ls_master-data_raw.
   SORT lt_raw_sorted BY row col.
 
   CLEAR: lv_cur_row, lv_line.

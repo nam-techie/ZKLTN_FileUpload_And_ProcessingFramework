@@ -26,7 +26,7 @@ FORM validate_data.
     RETURN.
   ENDIF.
 
-  DATA: ls_header  TYPE gty_excel_header,
+  DATA: ls_header  TYPE gty_data_header,
         lv_tabix   TYPE i,
         lo_type    TYPE REF TO cl_abap_typedescr,
         lv_err_msg TYPE string.
@@ -40,7 +40,7 @@ FORM validate_data.
     RETURN.
   ENDIF.
 
-  DATA lv_num_check TYPE f.
+  DATA lv_num_check TYPE decfloat34.
 
   LOOP AT <gfs_data> ASSIGNING <lfs_line>.
     lv_tabix = sy-tabix.
@@ -52,7 +52,7 @@ FORM validate_data.
 
       IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
 
-        " Logical Excel row index (matches GT_ERROR_LOG / UI).
+        " Logical data row index (matches GT_ERROR_LOG / UI).
         DATA(lv_real_row) = lv_tabix + gc_data_start - 1.
 
         SORT gt_error_log BY row_index col_pos.
@@ -128,7 +128,10 @@ FORM validate_data.
         " Numeric range [RNG:low-high] from header.
         IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
           TRY.
-              IF ls_header-rng_low IS NOT INITIAL AND <lfs_value> < ls_header-rng_low.
+
+              lv_num_check = CONV string( <lfs_value> ).
+
+              IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
                 lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-097 }{ ls_header-rng_low }{ TEXT-098 }|.
                 PERFORM add_error USING lv_real_row
                                         ls_header-col_pos
@@ -136,7 +139,7 @@ FORM validate_data.
                                         lv_err_msg.
               ENDIF.
 
-              IF ls_header-rng_high IS NOT INITIAL AND <lfs_value> > ls_header-rng_high.
+              IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
                 lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-100 }{ ls_header-rng_high }{ TEXT-101 }|.
                 PERFORM add_error USING lv_real_row
                                         ls_header-col_pos
@@ -156,7 +159,10 @@ FORM validate_data.
 
           lv_clean_list = replace( val = ls_header-val_list sub = '[LIST:' with = '' ).
           lv_clean_list = replace( val = lv_clean_list      sub = ']'      with = '' ).
-          CONDENSE lv_clean_list NO-GAPS.
+*          CONDENSE lv_clean_list NO-GAPS. !OBSOLETE SYNTAX
+          lv_clean_list = condense(
+                   val = lv_clean_list
+                   del = '' ).
 
           lv_search_list = |;{ lv_clean_list };|.
           lv_search_val  = |;{ condense( val = |{ <lfs_value> }| ) };|.
@@ -213,7 +219,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM validate_duplicate_in_file.
 
-  DATA: lt_key_cols TYPE TABLE OF gty_excel_header.
+  DATA: lt_key_cols TYPE TABLE OF gty_data_header.
 
   LOOP AT gt_header_list INTO DATA(ls_header) WHERE is_key = abap_on.
     APPEND ls_header TO lt_key_cols.
@@ -250,7 +256,8 @@ FORM validate_duplicate_in_file.
       ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
       IF sy-subrc = 0.
         lv_val_str = |{ <lfs_value> }|.
-        CONDENSE lv_val_str.
+*        CONDENSE lv_val_str. !OBSOLETE SYNTAX
+        lv_val_str = condense( val = lv_val_str ).
         IF lv_composite_key IS INITIAL.
           lv_composite_key = lv_val_str.
         ELSE.
@@ -293,21 +300,21 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form REVALIDATE_SINGLE_ROW
-*& Clear errors for PV_EXCEL_ROW; re-run header rules on one <gfs_data> row;
+*& Clear errors for pv_data_row; re-run header rules on one <gfs_data> row;
 *& remap tech names for ASSIGN; refresh duplicate-key pass at end.
 *&---------------------------------------------------------------------*
 FORM revalidate_single_row USING pv_tabix     TYPE i
-                                 pv_excel_row TYPE i.
+                                 pv_data_row TYPE i.
 
-  DATA: ls_header    TYPE gty_excel_header,
+  DATA: ls_header    TYPE gty_data_header,
         lo_type      TYPE REF TO cl_abap_typedescr,
         lv_err_msg   TYPE string,
-        lv_num_check TYPE f.
+        lv_num_check TYPE decfloat34.
 
   FIELD-SYMBOLS: <lfs_line>  TYPE any,
                  <lfs_value> TYPE any.
 
-  DELETE gt_error_log WHERE row_index = pv_excel_row.
+  DELETE gt_error_log WHERE row_index = pv_data_row.
 
   IF <gfs_data> IS NOT ASSIGNED.
     MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
@@ -341,7 +348,7 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
 
       IF ls_header-is_mand = abap_on AND <lfs_value> IS INITIAL.
         lv_err_msg = replace( val = TEXT-109 sub = '&1' with = ls_header-descr ).
-        PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+        PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
         CONTINUE.
       ENDIF.
 
@@ -361,13 +368,13 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
                   OTHERS                    = 2.
               IF sy-subrc <> 0.
                 lv_err_msg = replace( val = TEXT-110 sub = '&1' with = ls_header-descr ).
-                PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+                PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
                 CONTINUE.
               ENDIF.
             ENDIF.
           CATCH cx_sy_conversion_error.
             lv_err_msg = replace( val = TEXT-111 sub = '&1' with = ls_header-descr ).
-            PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
             CONTINUE.
         ENDTRY.
       ENDIF.
@@ -377,11 +384,11 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
             lv_num_check = <lfs_value>.
             IF lv_num_check < 0.
               lv_err_msg = replace( val = TEXT-112 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
             ENDIF.
           CATCH cx_sy_conversion_no_number.
             lv_err_msg = replace( val = TEXT-113 sub = '&1' with = ls_header-descr ).
-            PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
             CONTINUE.
           CATCH cx_sy_conversion_error.
             CONTINUE.
@@ -390,21 +397,24 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
 
       IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
         TRY.
-            IF ls_header-rng_low IS NOT INITIAL AND <lfs_value> < ls_header-rng_low.
+
+            lv_num_check = CONV string( <lfs_value> ).
+
+            IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
               lv_err_msg = replace( val  = replace( val  = TEXT-114
                                               sub  = '&1'
-                                              with = ls_header-descr )
+                                              with = |{ ls_header-descr }| )
                               sub  = '&2'
-                              with = ls_header-rng_low ).
-              PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+                              with = |{ ls_header-rng_low }| ).
+              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
             ENDIF.
-            IF ls_header-rng_high IS NOT INITIAL AND <lfs_value> > ls_header-rng_high.
+            IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
               lv_err_msg = replace( val  = replace( val  = TEXT-115
                                               sub  = '&1'
                                               with = ls_header-descr )
                               sub  = '&2'
-                              with = ls_header-rng_high ).
-              PERFORM add_error USING pv_excel_row ls_header-col_pos ls_header-tech_name lv_err_msg.
+                              with = |{ ls_header-rng_high }| ).
+              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
             ENDIF.
           CATCH cx_sy_conversion_error.
             CONTINUE.
@@ -418,7 +428,10 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
 
         lv_clean_list2 = replace( val = ls_header-val_list sub = '[LIST:' with = '' ).
         lv_clean_list2 = replace( val = lv_clean_list2     sub = ']'      with = '' ).
-        CONDENSE lv_clean_list2 NO-GAPS.
+*        CONDENSE lv_clean_list2 NO-GAPS. !OBSOLETE SYNTAX
+        lv_clean_list2 = condense(
+                   val = lv_clean_list2
+                   del = '' ).
 
         lv_search_list2 = |;{ lv_clean_list2 };|.
         lv_search_val2  = |;{ condense( val = |{ <lfs_value> }| ) };|.
@@ -428,7 +441,7 @@ FORM revalidate_single_row USING pv_tabix     TYPE i
           REPLACE ALL OCCURRENCES OF '&1' IN lv_err_msg WITH ls_header-descr.
           REPLACE ALL OCCURRENCES OF '&2' IN lv_err_msg WITH <lfs_value>.
           REPLACE ALL OCCURRENCES OF '&3' IN lv_err_msg WITH lv_clean_list2.
-          PERFORM add_error USING pv_excel_row
+          PERFORM add_error USING pv_data_row
                                   ls_header-col_pos
                                   ls_header-tech_name
                                   lv_err_msg.
@@ -458,7 +471,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
         lv_msgv3    TYPE string,
         lv_msgv4    TYPE string.
 
-  DATA(lv_tabix) = gv_selected_excel_row - gc_data_start + 1.
+  DATA(lv_tabix) = gv_selected_data_row - gc_data_start + 1.
 
   IF <gfs_data> IS NOT ASSIGNED.
     MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
@@ -480,7 +493,8 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
 
         DATA: lv_old_value_str TYPE string.
         lv_old_value_str = |{ <lfs_field> }|.
-        CONDENSE lv_old_value_str.
+*        CONDENSE lv_old_value_str. !OBSOLETE SYNTAX
+        lv_old_value_str = condense( val = lv_old_value_str ).
 
         DESCRIBE FIELD <lfs_field> TYPE DATA(lv_type).
 
@@ -525,7 +539,8 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
 
           DATA: lv_input_str TYPE string.
           lv_input_str = ls_mod_cell-value.
-          CONDENSE lv_input_str.
+*          CONDENSE lv_input_str.  !OBSOLETE SYNTAX
+          lv_input_str = condense( val = lv_input_str ).
 
           DATA(lv_input_len) = strlen( lv_input_str ).
 
@@ -600,10 +615,10 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
 
   IF lines( lo_data_changed->mt_good_cells ) > 0.
     gv_data_dirty = abap_on.
-    INSERT VALUE #( page_no = gv_current_page excel_row = gv_selected_excel_row ) INTO TABLE gt_row_dirty.
+    INSERT VALUE #( page_no = gv_current_page data_row = gv_selected_data_row ) INTO TABLE gt_row_dirty.
   ENDIF.
 
-  PERFORM revalidate_single_row USING lv_tabix gv_selected_excel_row.
+  PERFORM revalidate_single_row USING lv_tabix gv_selected_data_row.
 
   PERFORM prepare_master_alv_data.
 

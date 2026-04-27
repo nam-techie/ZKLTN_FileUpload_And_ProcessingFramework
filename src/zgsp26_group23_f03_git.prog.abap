@@ -104,7 +104,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form BUILD_DYNAMIC_DATA
 *& Orchestrates: component list + header errors, else allocate <GFS_DATA> and
-*& fill from GT_EXCEL_RAW (see GET / GENERATE / FILL forms below).
+*& fill from GT_DATA_RAW (see GET / GENERATE / FILL forms below).
 *&---------------------------------------------------------------------*
 FORM build_dynamic_data USING pv_sheet_name       TYPE string
                         CHANGING pt_header_errors TYPE string_table.
@@ -172,7 +172,7 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
         lv_new_name  TYPE string,
         lv_err_msg   TYPE string.
 
-  FIELD-SYMBOLS: <lfs_header> TYPE gty_excel_header.
+  FIELD-SYMBOLS: <lfs_header> TYPE gty_data_header.
 
   " Loop through the header list to build the components.
   " Using ASSIGNING so we can update the technical name directly if needed.
@@ -361,7 +361,7 @@ FORM generate_dynamic_table USING    pt_comp   TYPE cl_abap_structdescr=>compone
     CATCH cx_root.
       " This rarely happens unless the renaming logic above is flawed
       gv_error = abap_on.
-      MESSAGE e010(zmsg_gr23).
+      MESSAGE s010(zmsg_gr23) DISPLAY LIKE gc_displike_err.
       RETURN.
   ENDTRY.
 
@@ -373,29 +373,29 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form FILL_DYNAMIC_DATA
-*& Parses raw Excel cells and maps them into the dynamic table
+*& Parses raw data cells and maps them into the dynamic table
 *& (row boundary APPEND; ASSIGN by column index for renamed components).
 *&---------------------------------------------------------------------*
 FORM fill_dynamic_data USING lo_struct TYPE REF TO cl_abap_structdescr.
 
-  DATA: ls_raw       TYPE gty_excel_cell,
+  DATA: ls_raw       TYPE gty_data_cell,
         lv_cur_row   TYPE i,
         lv_dref_line TYPE REF TO data,
         lv_error_msg TYPE string.
 
   FIELD-SYMBOLS: <lfs_line>   TYPE any,
                  <lfs_field>  TYPE any,
-                 <lfs_header> TYPE gty_excel_header.
+                 <lfs_header> TYPE gty_data_header.
 
   " Create a workspace for a single line
   CREATE DATA lv_dref_line TYPE HANDLE lo_struct.
   ASSIGN lv_dref_line->* TO <lfs_line>.
 
   " Make sure the data is processed sequentially by coordinates
-  SORT gt_excel_raw BY row col.
+  SORT gt_data_raw BY row col.
   CLEAR lv_cur_row.
 
-  LOOP AT gt_excel_raw INTO ls_raw.
+  LOOP AT gt_data_raw INTO ls_raw.
 
     " Whenever the row index changes, append the completed line and start fresh
     IF lv_cur_row <> ls_raw-row.
@@ -438,7 +438,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form HANDLE_DUPLICATED_TECH_NAME
 *& Picks a free component name in PT_COMP by appending 1,2,... to PV_BASE_NAME
-*& while LINE_EXISTS (used when several Excel columns map to same DDIC name).
+*& while LINE_EXISTS (used when several data columns map to same DDIC name).
 *&---------------------------------------------------------------------*
 FORM handle_duplicated_tech_name USING    pv_base_name TYPE string
                                           pt_comp      TYPE cl_abap_structdescr=>component_table

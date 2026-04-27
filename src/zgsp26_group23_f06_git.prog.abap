@@ -15,7 +15,7 @@
 
 *&---------------------------------------------------------------------*
 *& Form REBUILD_BASE64_FILE_CONTENT
-*& Rebuild XLSX from GT_MASTER_SHEETS: header row, tech rule row, GT_EXCEL_RAW
+*& Rebuild XLSX from GT_MASTER_SHEETS: header row, tech rule row, GT_data_RAW
 *& cells per sheet; ABAP2XLSX writer -> XSTRING -> SSFC_BASE64_ENCODE.
 *&---------------------------------------------------------------------*
 FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
@@ -25,7 +25,7 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
        lo_writer    TYPE REF TO zif_excel_writer,
        lv_xstring   TYPE xstring.
 
-  DATA: ls_raw      TYPE gty_excel_cell,
+  DATA: ls_raw      TYPE gty_data_cell,
         lv_rule_str TYPE string.
 
   " New ABAP2XLSX workbook instance.
@@ -83,7 +83,7 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
             ip_value  = lv_rule_str
           ).
         ENDLOOP.
-        LOOP AT ls_master-excel_raw INTO ls_raw.
+        LOOP AT ls_master-data_raw INTO ls_raw.
           lo_worksheet->set_cell(
             ip_row    = ls_raw-row
             ip_column = ls_raw-col
@@ -198,7 +198,8 @@ FORM rebuild_text_base64 USING    pv_file_type TYPE char10
 
       IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
         lv_val_str = |{ <lfs_value> }|.
-        CONDENSE lv_val_str.
+*        CONDENSE lv_val_str. !OBSOLETE SYNTAX
+        lv_val_str = condense( val = lv_val_str ).
 
         " RFC-style CSV: wrap field in double quotes when it contains the separator.
         IF pv_file_type = gc_ftype_csv AND lv_val_str CS lv_separator.

@@ -499,7 +499,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form PROCESS_HISTORY_SELECTED
 *& CSV/TXT: load lines from log into GT_PREVIEW_LINES, plain preview like validate.
-*& Other types (e.g. XLSX): RELOAD_DATA_FROM_DB then CALL SCREEN 100 (Excel ALV flow).
+*& Other types (e.g. XLSX): RELOAD_DATA_FROM_DB then CALL SCREEN 100 (Data ALV flow).
 *&---------------------------------------------------------------------*
 FORM process_history_selected USING pv_logid TYPE zlog_header-log_id.
 

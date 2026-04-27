@@ -6,7 +6,7 @@
 *&---------------------------------------------------------------------*
 *& Purpose
 *&  File I/O and parsing for Group23: XLSX from PC or application server,
-*&  CSV/TXT lines to GT_HEADER_LIST / GT_EXCEL_RAW, header rule parsing,
+*&  CSV/TXT lines to GT_HEADER_LIST / GT_data_RAW, header rule parsing,
 *&  F4 paths for server/client selection.
 *&---------------------------------------------------------------------*
 
@@ -78,7 +78,7 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
       LOOP AT lt_worksheets INTO DATA(lv_sheet_name).
 
         " Reset working area before each worksheet.
-        CLEAR: gt_header_list, gt_excel_raw, gt_error_log, gv_error.
+        CLEAR: gt_header_list, gt_data_raw, gt_error_log, gv_error.
         UNASSIGN <gfs_data>.
 
         TRY.
@@ -121,7 +121,7 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
             ENDIF.
 
             " Scan grid: header row, tech row (rules), data cells -> GT_* .
-            DATA: ls_header TYPE gty_excel_header, ls_cell TYPE gty_excel_cell.
+            DATA: ls_header TYPE gty_data_header, ls_cell TYPE gty_data_cell.
             LOOP AT <lfs_excel_data> ASSIGNING FIELD-SYMBOL(<lfs_row>).
               DATA(lv_row_idx) = sy-tabix.
               DATA(lv_col_idx) = 1.
@@ -143,7 +143,7 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
                   ENDIF.
                 ELSEIF lv_row_idx >= gc_data_start AND lv_value IS NOT INITIAL.
                   ls_cell = VALUE #( row = lv_row_idx col = lv_col_idx value = lv_value ).
-                  APPEND ls_cell TO gt_excel_raw.
+                  APPEND ls_cell TO gt_data_raw.
                 ENDIF.
 
                 lv_col_idx += 1.
@@ -151,7 +151,7 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
             ENDLOOP.
 
             " Need both header metadata and body cells before build/validate.
-            IF gt_header_list IS INITIAL OR gt_excel_raw IS INITIAL.
+            IF gt_header_list IS INITIAL OR gt_data_raw IS INITIAL.
               CALL FUNCTION 'POPUP_TO_INFORM'
                 EXPORTING
                   titel = TEXT-126
@@ -172,7 +172,7 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
               APPEND VALUE #( page_no     = lv_real_page_count
                 sheet_name  = lv_sheet_name
                 header_list = gt_header_list
-                excel_raw   = gt_excel_raw
+                data_raw   = gt_data_raw
                 dref_data   = gv_dref_table
                 error_log   = gt_error_log
                 is_parsed   = abap_on ) TO gt_master_sheets.
@@ -262,7 +262,7 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
         IF gv_error = abap_on.
           EXIT.
         ENDIF.
-        CLEAR: gt_header_list, gt_excel_raw, gt_error_log.
+        CLEAR: gt_header_list, gt_data_raw, gt_error_log.
         UNASSIGN <gfs_data>.
 
         TRY.
@@ -273,8 +273,8 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
               CONTINUE.
             ENDIF.
 
-            DATA: ls_header TYPE gty_excel_header,
-                  ls_cell TYPE gty_excel_cell.
+            DATA: ls_header TYPE gty_data_header,
+                  ls_cell   TYPE gty_data_cell.
 
             LOOP AT <lfs_excel_data> ASSIGNING FIELD-SYMBOL(<lfs_row>).
               DATA(lv_row_idx) = sy-tabix.
@@ -297,7 +297,7 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
                   ENDIF.
                 ELSEIF lv_row_idx >= gc_data_start AND lv_value IS NOT INITIAL.
                   ls_cell = VALUE #( row = lv_row_idx col = lv_col_idx value = lv_value ).
-                  APPEND ls_cell TO gt_excel_raw.
+                  APPEND ls_cell TO gt_data_raw.
                 ENDIF.
 
                 lv_col_idx += 1.
@@ -315,7 +315,7 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
               APPEND VALUE #( page_no     = lv_real_page_count
                               sheet_name  = lv_sheet_name
                               header_list = gt_header_list
-                              excel_raw   = gt_excel_raw
+                              data_raw   = gt_data_raw
                               dref_data   = gv_dref_table
                               error_log   = gt_error_log
                               is_parsed   = abap_on ) TO gt_master_sheets.
@@ -428,7 +428,7 @@ ENDFORM.
 *& GTY_EXCEL_HEADER; remainder uppercased becomes TECH_NAME.
 *&---------------------------------------------------------------------*
 FORM f01_parse_header_rule  USING    pv_value TYPE string
-                            CHANGING ps_header TYPE gty_excel_header.
+                            CHANGING ps_header TYPE gty_data_header.
 
   DATA: lv_temp       TYPE string ##NEEDED,
         lv_rule       TYPE string,
@@ -454,21 +454,30 @@ FORM f01_parse_header_rule  USING    pv_value TYPE string
   ENDIF.
 
   IF lv_clean CS '[RNG:'.
+
+    DATA: lv_float_low  TYPE string,
+          lv_float_high TYPE string.
+
     SPLIT lv_clean  AT '[RNG:' INTO lv_temp lv_rule.
     SPLIT lv_rule   AT ']'     INTO lv_rule lv_temp.
-    SPLIT lv_rule   AT '-'     INTO ps_header-rng_low ps_header-rng_high.
+    SPLIT lv_rule   AT '-'     INTO lv_float_low lv_float_high.
+*    SPLIT lv_rule   AT '-'     INTO ps_header-rng_low ps_header-rng_high.
 
-    IF ps_header-rng_low IS NOT INITIAL AND ps_header-rng_high IS NOT INITIAL.
+    IF lv_float_high IS NOT INITIAL AND lv_float_low IS NOT INITIAL.
+*    IF ps_header-rng_low IS NOT INITIAL AND ps_header-rng_high IS NOT INITIAL.
       TRY.
           " Numeric compare via F; swap bounds if reversed.
-          DATA: lv_float_low  TYPE f,
-                lv_float_high TYPE f,
-                lv_swap_temp  TYPE string.
+          DATA:
+*                lv_float_low  TYPE f,
+*                lv_float_high TYPE f,
+                lv_swap_temp  TYPE decfloat34.
 
-          lv_float_low  = ps_header-rng_low.
-          lv_float_high = ps_header-rng_high.
+          ps_header-rng_low  = lv_float_low.
+          ps_header-rng_high = lv_float_high.
+*          lv_float_low  = ps_header-rng_low.
+*          lv_float_high = ps_header-rng_high.
 
-          IF lv_float_low > lv_float_high.
+          IF ps_header-rng_low > ps_header-rng_high.
             lv_swap_temp       = ps_header-rng_low.
             ps_header-rng_low  = ps_header-rng_high.
             ps_header-rng_high = lv_swap_temp.
@@ -683,7 +692,8 @@ FORM read_text_server USING    pv_file          TYPE rlgrap-filename
       REPLACE PCRE '[[:cntrl:]]+$' IN lv_line WITH ''.
 
       " Clean up any leftover whitespaces
-      CONDENSE lv_line. " Safely removes leading/trailing spaces and compresses inner spaces
+*      CONDENSE lv_line. !OBSOLETE SYNTAX
+      lv_line = condense( val = lv_line ).  " Safely removes leading/trailing spaces and compresses inner spaces
       APPEND lv_line TO lt_string_tab.
 
     ENDDO.
@@ -740,8 +750,8 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
 
   DATA: lt_cols   TYPE TABLE OF string,
         lv_val    TYPE string,
-        ls_cell   TYPE gty_excel_cell,
-        ls_header TYPE gty_excel_header,
+        ls_cell   TYPE gty_data_cell,
+        ls_header TYPE gty_data_header,
         lv_row    TYPE i,
         lv_col    TYPE i,
         lv_sep    TYPE char1.
@@ -752,7 +762,7 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
     lv_sep = cl_abap_char_utilities=>horizontal_tab. " tab-delimited TXT
   ENDIF.
 
-  CLEAR: gt_header_list, gt_excel_raw, gt_master_sheets.
+  CLEAR: gt_header_list, gt_data_raw, gt_master_sheets.
 
   LOOP AT pt_string_tab INTO DATA(lv_line).
     lv_row = sy-tabix.
@@ -764,7 +774,8 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
 
     lv_col = 1.
     LOOP AT lt_cols INTO lv_val.
-      CONDENSE lv_val.
+*      CONDENSE lv_val.   !OBSOLETE SYNTAX
+      lv_val = condense( val = lv_val ).
 
       IF lv_row = gc_header_row.
         IF lv_val IS NOT INITIAL.
@@ -785,7 +796,7 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
           ls_cell-row   = lv_row.
           ls_cell-col   = lv_col.
           ls_cell-value = lv_val.
-          APPEND ls_cell TO gt_excel_raw.
+          APPEND ls_cell TO gt_data_raw.
         ENDIF.
       ENDIF.
 
@@ -804,7 +815,7 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
     APPEND VALUE #( page_no     = 1
                     sheet_name  = ''
                     header_list = gt_header_list
-                    excel_raw   = gt_excel_raw
+                    data_raw   = gt_data_raw
                     dref_data   = gv_dref_table
                     error_log   = gt_error_log
                     is_parsed   = abap_on ) TO gt_master_sheets.
@@ -819,37 +830,37 @@ ENDFORM.
 *&      --> LT_STRUCT_ERRORS
 *&---------------------------------------------------------------------*
 FORM show_popup_struct_err  USING    pt_struct_errors TYPE string_table.
-      IF pt_struct_errors IS NOT INITIAL.
-        DATA: lt_err_display TYPE TABLE OF char200,
-              ls_err_line    TYPE char200.
+  IF pt_struct_errors IS NOT INITIAL.
+    DATA: lt_err_display TYPE TABLE OF char200,
+          ls_err_line    TYPE char200.
 
-        CLEAR lt_err_display.
-        ls_err_line = TEXT-045.
-        APPEND ls_err_line TO lt_err_display.
-        LOOP AT pt_struct_errors INTO DATA(lv_struct_err).
-          ls_err_line = |{ lv_struct_err }|.
-          APPEND ls_err_line TO lt_err_display.
-        ENDLOOP.
-        ls_err_line = TEXT-046.
-        APPEND ls_err_line TO lt_err_display.
+    CLEAR lt_err_display.
+    ls_err_line = TEXT-045.
+    APPEND ls_err_line TO lt_err_display.
+    LOOP AT pt_struct_errors INTO DATA(lv_struct_err).
+      ls_err_line = |{ lv_struct_err }|.
+      APPEND ls_err_line TO lt_err_display.
+    ENDLOOP.
+    ls_err_line = TEXT-046.
+    APPEND ls_err_line TO lt_err_display.
 
-        CALL FUNCTION 'POPUP_WITH_TABLE_DISPLAY'
-          EXPORTING
-            endpos_col   = 100
-            endpos_row   = 20
-            startpos_col = 5
-            startpos_row = 3
-            titletext    = TEXT-045
-          TABLES
-            valuetab     = lt_err_display
-          EXCEPTIONS
-            break_off    = 1
-            OTHERS       = 2.
-        IF sy-subrc <> 0.                                 "#EC CI_SUBRC
-        ENDIF.
+    CALL FUNCTION 'POPUP_WITH_TABLE_DISPLAY'
+      EXPORTING
+        endpos_col   = 100
+        endpos_row   = 20
+        startpos_col = 5
+        startpos_row = 3
+        titletext    = TEXT-045
+      TABLES
+        valuetab     = lt_err_display
+      EXCEPTIONS
+        break_off    = 1
+        OTHERS       = 2.
+    IF sy-subrc <> 0.                                     "#EC CI_SUBRC
+    ENDIF.
 
-        gv_error = abap_on.
-        MESSAGE s034(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-        RETURN.
-      ENDIF.
+    gv_error = abap_on.
+    MESSAGE s034(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    RETURN.
+  ENDIF.
 ENDFORM.

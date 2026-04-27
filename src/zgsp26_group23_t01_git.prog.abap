@@ -34,31 +34,31 @@ CONSTANTS: gc_header_row     TYPE i        VALUE 1,
 *----------------------------------------------------------------------*
 * TYPES (Data Type Definitions)
 *----------------------------------------------------------------------*
-* Structure for Header read from Excel
-TYPES: BEGIN OF gty_excel_header,
+* Structure for data Header read
+TYPES: BEGIN OF gty_data_header,
          col_pos   TYPE i,
          tech_name TYPE string,
          descr     TYPE string,
          is_mand   TYPE abap_bool,  " Mandatory field? (X = yes, blank = no)
          is_pos    TYPE abap_bool,  " Must be a positive number (+)
          is_key    TYPE abap_bool,  " Key field
-         rng_low   TYPE string,     " Minimum allowed value (e.g. 10)
-         rng_high  TYPE string,     " Maximum allowed value (e.g. 100)
+         rng_low   TYPE decfloat34,     " Minimum allowed value (e.g. 10)
+         rng_high  TYPE decfloat34,     " Maximum allowed value (e.g. 100)
          val_list  TYPE string,     " Allowed values list (e.g. FERT,HAWA)
-       END OF gty_excel_header.
+       END OF gty_data_header.
 
 * Table Type for Header
-TYPES: gty_t_excel_header TYPE STANDARD TABLE OF gty_excel_header WITH EMPTY KEY.
+TYPES: gty_t_data_header TYPE STANDARD TABLE OF gty_data_header WITH EMPTY KEY.
 
-* Structure for Excel Cell (Coordinates)
-TYPES: BEGIN OF gty_excel_cell,
+* Structure for data Cell (Coordinates)
+TYPES: BEGIN OF gty_data_cell,
          row   TYPE i,
          col   TYPE i,
          value TYPE string,
-       END OF gty_excel_cell.
+       END OF gty_data_cell.
 
-* Table Type for Excel Cell
-TYPES: gty_t_excel_cell TYPE STANDARD TABLE OF gty_excel_cell WITH EMPTY KEY.
+* Table Type for data Cell
+TYPES: gty_t_data_cell TYPE STANDARD TABLE OF gty_data_cell WITH EMPTY KEY.
 
 * Structure for Error Log
 TYPES: BEGIN OF gty_error_log,
@@ -77,8 +77,8 @@ TYPES: gty_t_error_log TYPE STANDARD TABLE OF gty_error_log WITH EMPTY KEY.
 TYPES: BEGIN OF gty_master_sheet,
          page_no     TYPE i,                   " Sheet index (1, 2, 3...)
          sheet_name  TYPE string,              " Excel sheet name (e.g. Nhan_Vien, Luong)
-         header_list TYPE gty_t_excel_header,  " Slot 1: column definitions from header row
-         excel_raw   TYPE gty_t_excel_cell,    " Slot 2: raw cells with row/column coordinates
+         header_list TYPE gty_t_data_header,  " Slot 1: column definitions from header row
+         data_raw    TYPE gty_t_data_cell,    " Slot 2: raw cells with row/column coordinates
          dref_data   TYPE REF TO data,         " Slot 3: reference to dynamic result table
          error_log   TYPE gty_t_error_log,     " Slot 4: validation / processing error log
          is_parsed   TYPE abap_bool,           " Flag: this sheet was already validated
@@ -94,10 +94,10 @@ DATA: gv_dref_table TYPE REF TO data.
 FIELD-SYMBOLS: <gfs_data> TYPE STANDARD TABLE. " Reference to dynamic table
 
 * Variable holding Header list
-DATA: gt_header_list TYPE gty_t_excel_header.
+DATA: gt_header_list TYPE gty_t_data_header.
 
-* Variable holding raw Excel data
-DATA: gt_excel_raw TYPE gty_t_excel_cell.
+* Variable holding raw data cell
+DATA: gt_data_raw TYPE gty_t_data_cell.
 
 * Variable holding error log
 DATA: gt_error_log TYPE gty_t_error_log.
@@ -136,7 +136,7 @@ DATA: gv_dref_master   TYPE REF TO data,
       gt_vertical_data TYPE TABLE OF gty_vertical_data,
       gt_drop_detail   TYPE lvc_t_drop.
 
-FIELD-SYMBOLS: <gfs_master>    TYPE STANDARD TABLE.
+FIELD-SYMBOLS: <gfs_master> TYPE STANDARD TABLE.
 
 "  GUI container / splitter / grid objects for the new screen layout
 DATA: go_cont_tabs    TYPE REF TO cl_gui_custom_container,
@@ -153,8 +153,8 @@ DATA: go_cont_tabs    TYPE REF TO cl_gui_custom_container,
 
       go_text_edit    TYPE REF TO cl_gui_textedit.
 
-" Excel row index the user last selected in the master grid
-DATA: gv_selected_excel_row TYPE i.
+" data row index the user last selected in the master grid
+DATA: gv_selected_data_row TYPE i.
 
 *----------------------------------------------------------------------*
 * PROGRAM ERROR AND LOGGING
@@ -167,12 +167,12 @@ DATA: gv_plain_preview    TYPE abap_bool VALUE abap_off,
       gt_preview_lines    TYPE string_table,
       gt_preview_snapshot TYPE string_table.
 
-* Rows edited in ALV but not yet saved to DB (status column — yellow); key = sheet + Excel row number
+* Rows edited in ALV but not yet saved to DB (status column — yellow); key = sheet + data row number
 TYPES: BEGIN OF gty_dirty_line,
-         page_no   TYPE i,
-         excel_row TYPE i,
+         page_no  TYPE i,
+         data_row TYPE i,
        END OF gty_dirty_line.
-DATA gt_row_dirty TYPE HASHED TABLE OF gty_dirty_line WITH UNIQUE KEY page_no excel_row.
+DATA gt_row_dirty TYPE HASHED TABLE OF gty_dirty_line WITH UNIQUE KEY page_no data_row.
 
 *----------------------------------------------------------------------*
 * DATA FOR HISTORY SCREEN
