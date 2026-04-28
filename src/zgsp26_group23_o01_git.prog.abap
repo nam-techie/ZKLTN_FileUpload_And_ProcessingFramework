@@ -27,7 +27,6 @@ ENDMODULE.
 *& then SWITCH_ALV_MODE when not in plain preview.
 *&---------------------------------------------------------------------*
 MODULE init_0100 OUTPUT.
-
   IF gv_error = abap_on AND gv_plain_preview = abap_off.
     RETURN.
   ENDIF.
@@ -73,25 +72,6 @@ FORM set_status_0100 .
   CLEAR lt_excl.
 
   IF gv_plain_preview = abap_on.
-    DATA(lv_is_stor) = abap_off.
-    IF p_stor = abap_on.
-      lv_is_stor = abap_on.
-    ELSEIF gv_current_log_id IS NOT INITIAL.
-      SELECT SINGLE category, file_type FROM zlog_header INTO @DATA(ls_header)
-        WHERE log_id = @gv_current_log_id.
-      IF sy-subrc = 0 AND ls_header-category = gc_stored_file.
-        lv_is_stor = abap_on.
-      ENDIF.
-    ENDIF.
-
-    IF lv_is_stor = abap_on.
-      APPEND gc_ucomm_raw_cont TO lt_excl.
-    ENDIF.
-
-*    IF ls_header-file_type <> gc_ftype_xlsx AND lv_is_stor = abap_off.
-*      APPEND gc_ucomm_save TO lt_excl.
-*    ENDIF.
-
     IF gv_edit_mode = abap_off.
       APPEND gc_ucomm_view_raw TO lt_excl.
       SET PF-STATUS gc_stt_disp EXCLUDING lt_excl.
