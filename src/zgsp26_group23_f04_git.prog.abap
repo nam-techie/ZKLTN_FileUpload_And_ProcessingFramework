@@ -5,7 +5,7 @@
 *&---------------------------------------------------------------------*
 *& Purpose
 *&  Upload history UI: query ZLOG_HEADER for current user, ALV on screen
-*&  200, bulk/single download from ZLOG_ITEM (Base64), reopen log into
+*&  200, batch/single download from ZLOG_ITEM (Base64), reopen log into
 *&  preview or full reload, SMW0 template ZIP download.
 *&---------------------------------------------------------------------*
 
@@ -160,7 +160,7 @@ FORM build_history_alv_grid.
       EXPORTING
         i_parent = go_cont_hist.
 
-    " Layout: sel_mode 'D' allows Ctrl+click multi row selection (bulk download).
+    " Layout: sel_mode 'D' allows Ctrl+click multi row selection (batch download).
     ls_layout-zebra      = abap_on.
     ls_layout-cwidth_opt = abap_on.
     ls_layout-sel_mode   = 'D'.
@@ -188,59 +188,7 @@ FORM build_history_alv_grid.
     ).
 
     " Hide standard ALV toolbar functions not needed on this list.
-
-    lt_exclude = VALUE #(
-     ( cl_gui_alv_grid=>mc_fc_check )
-     ( cl_gui_alv_grid=>mc_fc_refresh )
-     ( cl_gui_alv_grid=>mc_fc_loc_cut )
-     ( cl_gui_alv_grid=>mc_fc_loc_paste )
-     ( cl_gui_alv_grid=>mc_fc_loc_paste_new_row )
-     ( cl_gui_alv_grid=>mc_fc_loc_undo )
-     ( cl_gui_alv_grid=>mc_fc_loc_paste )
-     ( cl_gui_alv_grid=>mc_fc_loc_append_row )
-     ( cl_gui_alv_grid=>mc_fc_loc_insert_row )
-     ( cl_gui_alv_grid=>mc_fc_loc_delete_row )
-     ( cl_gui_alv_grid=>mc_fc_loc_copy_row )
-     ( cl_gui_alv_grid=>mc_fc_print )
-     ( cl_gui_alv_grid=>mc_fc_print_prev )
-     ( cl_gui_alv_grid=>mc_fc_view_grid )
-     ( cl_gui_alv_grid=>mc_fc_view_excel )
-     ( cl_gui_alv_grid=>mc_fc_view_crystal )
-     ( cl_gui_alv_grid=>mc_fc_word_processor )
-     ( cl_gui_alv_grid=>mc_fc_pc_file )
-     ( cl_gui_alv_grid=>mc_fc_send )
-     ( cl_gui_alv_grid=>mc_fc_to_office )
-     ( cl_gui_alv_grid=>mc_fc_call_abc )
-     ( cl_gui_alv_grid=>mc_fc_expcrdesig )
-     ( cl_gui_alv_grid=>mc_fc_expcrtempl )
-     ( cl_gui_alv_grid=>mc_fc_html )
-     ( cl_gui_alv_grid=>mc_fc_url_copy_to_clipboard )
-     ( cl_gui_alv_grid=>mc_fc_variant_admin )
-     ( cl_gui_alv_grid=>mc_fc_graph )
-     ( cl_gui_alv_grid=>mc_fc_info )
-     ( cl_gui_alv_grid=>mc_fc_loc_copy )
-     ( cl_gui_alv_grid=>mc_fc_detail )
-     ( cl_gui_alv_grid=>mc_mb_sum )
-     ( cl_gui_alv_grid=>mc_fc_subtot )
-     ( cl_gui_alv_grid=>mc_fc_views )
-     ( cl_gui_alv_grid=>mc_fc_sort )
-     ( cl_gui_alv_grid=>mc_mb_export )
-     ( cl_gui_alv_grid=>mc_mb_variant )
-     ( cl_gui_alv_grid=>mc_mb_view )
-     ).
-
-*    lt_exclude = VALUE #(
-*      ( cl_gui_alv_grid=>mc_mb_export )
-*      ( cl_gui_alv_grid=>mc_fc_sum )
-*      ( cl_gui_alv_grid=>mc_fc_subtot )
-*      ( cl_gui_alv_grid=>mc_fc_detail )
-*      ( cl_gui_alv_grid=>mc_fc_print )
-*      ( cl_gui_alv_grid=>mc_fc_info )
-*      ( cl_gui_alv_grid=>mc_fc_graph )
-*      ( cl_gui_alv_grid=>mc_fc_ )
-*      ( cl_gui_alv_grid=>mc_fc_sum )
-*      ( cl_gui_alv_grid=>mc_fc_views )
-*    ).
+    PERFORM get_alv_exclude_tb_func CHANGING lt_exclude.
 
     " Register double-click on history grid (open log / download path in C00).
     IF go_alv_events IS NOT BOUND.
@@ -266,14 +214,14 @@ ENDFORM.
 
 
 *&---------------------------------------------------------------------*
-*& Section: Download from history (single / ZIP bulk)
+*& Section: Download from history (single / ZIP batch)
 *&---------------------------------------------------------------------*
 
 *&---------------------------------------------------------------------*
-*& Form PROCESS_DOWNLOAD_BULK
+*& Form PROCESS_DOWNLOAD_batch
 *& Read ALV multi-selection; one row -> DOWNLOAD_SINGLE_FILE, else ZIP path.
 *&---------------------------------------------------------------------*
-FORM process_download_bulk.
+FORM process_download_batch.
 
   DATA: lt_rows  TYPE lvc_t_row,
         lv_count TYPE i.
@@ -694,9 +642,9 @@ FORM download_template_zip.
   ENDIF.
 ENDFORM.
 *&---------------------------------------------------------------------*
-*& Form process_delete_bulk
+*& Form process_delete_batch
 *&---------------------------------------------------------------------*
-FORM process_delete_bulk.
+FORM process_delete_batch.
   DATA: lt_rows        TYPE lvc_t_row,
         lv_count       TYPE i,
         lv_ans         TYPE char1,

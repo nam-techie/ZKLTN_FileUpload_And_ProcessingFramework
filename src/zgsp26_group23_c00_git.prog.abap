@@ -69,7 +69,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
       IF sy-subrc = 0.
         gv_selected_data_row = <lfs_data_row>.
         " Refresh both detail panels for the new selection.
-        PERFORM refresh_detail_alvs.
+        PERFORM prepare_detail_alvs.
       ENDIF.
     ENDIF.
   ENDMETHOD.
@@ -174,7 +174,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
     IF go_grid_master IS BOUND.
       go_grid_master->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ).
     ENDIF.
-    PERFORM refresh_detail_alvs.
+    PERFORM prepare_detail_alvs.
   ENDMETHOD.
 
 ENDCLASS.

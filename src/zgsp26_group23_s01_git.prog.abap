@@ -20,7 +20,6 @@ SELECTION-SCREEN END OF BLOCK b1.
 SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
 
   " Where the file comes from: local PC or application server (e.g. AL11)
-
   SELECTION-SCREEN BEGIN OF LINE.
 
     " Label "File source:" (text symbol s01)
@@ -88,13 +87,16 @@ FORM init_selection_screen.
         ls_value       LIKE LINE OF lt_values_new,
         ls_functxt     TYPE smp_dyntxt.
 
-  ls_value-key = gc_ftype_xlsx. ls_value-text = TEXT-072.
+  ls_value-key = gc_ftype_xlsx.
+  ls_value-text = TEXT-072.
   APPEND ls_value TO lt_values_new.
 
-  ls_value-key = gc_ftype_csv.  ls_value-text = TEXT-073.
+  ls_value-key = gc_ftype_csv.
+  ls_value-text = TEXT-073.
   APPEND ls_value TO lt_values_new.
 
-  ls_value-key = gc_ftype_txt.  ls_value-text = TEXT-074.
+  ls_value-key = gc_ftype_txt.
+  ls_value-text = TEXT-074.
   APPEND ls_value TO lt_values_new.
 
   CALL FUNCTION 'VRM_SET_VALUES'

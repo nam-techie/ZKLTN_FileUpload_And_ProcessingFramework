@@ -118,13 +118,8 @@ FORM build_dynamic_data USING pv_sheet_name       TYPE string
         lo_struct       TYPE REF TO cl_abap_structdescr,
         lv_sheet_prefix TYPE string.
 
-  " Set up a prefix for messages if a sheet name is provided
-  IF pv_sheet_name IS NOT INITIAL.
-    lv_sheet_prefix = |[{ pv_sheet_name }] |.
-  ENDIF.
-
   " Gather components and check for structure errors
-  PERFORM get_dynamic_components USING    lv_sheet_prefix
+  PERFORM get_dynamic_components USING    pv_sheet_name
                                  CHANGING lt_comp
                                           pt_header_errors.
 
@@ -186,15 +181,6 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
       PERFORM add_header_error USING lv_err_msg
                                      pv_sheet_prefix
                                CHANGING pt_header_errors.
-
-*      IF pv_sheet_prefix IS NOT INITIAL.
-*        READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = pv_sheet_prefix.
-*        IF sy-subrc <> 0.
-*          APPEND  |{ pv_sheet_prefix }{ lv_err_msg }| TO pt_header_errors.
-*        ENDIF.
-*      ENDIF.
-*
-*      APPEND lv_err_msg TO pt_header_errors.
       CONTINUE.
     ENDIF.
 
@@ -221,13 +207,6 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
       PERFORM add_header_error USING lv_err_msg
                                      pv_sheet_prefix
                                CHANGING pt_header_errors.
-
-*      READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = pv_sheet_prefix.
-*      IF sy-subrc <> 0.
-*        APPEND  |{ pv_sheet_prefix }{ lv_err_msg }| TO pt_header_errors.
-*      ENDIF.
-*
-*      APPEND lv_err_msg TO pt_header_errors.
 
       " Skip creating the component for this column and move on
       CONTINUE.
@@ -267,12 +246,6 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
                                          pv_sheet_prefix
                                    CHANGING pt_header_errors.
 
-*          READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = pv_sheet_prefix.
-*          IF sy-subrc <> 0.
-*            APPEND  |{ pv_sheet_prefix }{ lv_err_msg }| TO pt_header_errors.
-*          ENDIF.
-*
-*          APPEND lv_err_msg TO pt_header_errors.
       ENDTRY.
     ELSE.
       " The data element or type doesn't exist in the system
@@ -284,12 +257,6 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
                                      pv_sheet_prefix
                                CHANGING pt_header_errors.
 
-*      READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = pv_sheet_prefix.
-*      IF sy-subrc <> 0.
-*        APPEND  |{ pv_sheet_prefix }{ lv_err_msg }| TO pt_header_errors.
-*      ENDIF.
-*
-*      APPEND lv_err_msg TO pt_header_errors.
     ENDIF.
 
   ENDLOOP.
@@ -301,9 +268,9 @@ FORM add_header_error USING    pv_err_msg TYPE string
                       CHANGING pt_header_errors TYPE string_table.
 
   IF pv_sheet_prefix IS NOT INITIAL.
-    READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = |-{ pv_sheet_prefix }|.
+    READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = |-[{ pv_sheet_prefix }]|.
     IF sy-subrc <> 0.
-      APPEND |-{ pv_sheet_prefix }| TO pt_header_errors.
+      APPEND |-[{ pv_sheet_prefix }]| TO pt_header_errors.
     ENDIF.
   ENDIF.
 
@@ -455,20 +422,18 @@ FORM handle_duplicated_tech_name USING    pv_base_name TYPE string
     pv_new_name = |{ pv_base_name }{ lv_counter }|.
   ENDWHILE.
 ENDFORM.
+
 *&---------------------------------------------------------------------*
 *& Form unlock_data
-*&---------------------------------------------------------------------*
-*& text
-*&---------------------------------------------------------------------*
-*& -->  p1        text
-*& <--  p2        text
 *&---------------------------------------------------------------------*
 FORM unlock_data .
 
   DATA lv_varkey TYPE rstable-varkey.
 
+  " Build the lock key using client and current log ID.
   lv_varkey = sy-mandt && gv_current_log_id.
 
+  " Release the exclusive lock on the current log header record.
   CALL FUNCTION 'DEQUEUE_E_TABLEE'
     EXPORTING
       mode_rstable = 'E'
@@ -476,20 +441,18 @@ FORM unlock_data .
       varkey       = lv_varkey.
 
 ENDFORM.
+
 *&---------------------------------------------------------------------*
 *& Form lock_data
-*&---------------------------------------------------------------------*
-*& text
-*&---------------------------------------------------------------------*
-*& -->  p1        text
-*& <--  p2        text
 *&---------------------------------------------------------------------*
 FORM lock_data CHANGING lv_locked TYPE abap_bool.
 
   DATA lv_varkey TYPE rstable-varkey.
+
+  " Build the lock key using client and current log ID.
   lv_varkey = sy-mandt && gv_current_log_id.
 
-  " --- KÍCH HOẠT KHÓA (ENQUEUE) ĐỂ CHỐNG GHI ĐÈ ---
+  " Request an exclusive edit lock before entering change mode.
   CALL FUNCTION 'ENQUEUE_E_TABLEE'
     EXPORTING
       mode_rstable   = 'E'
@@ -501,9 +464,8 @@ FORM lock_data CHANGING lv_locked TYPE abap_bool.
       OTHERS         = 3.
 
   IF sy-subrc <> 0.
-    " Văng ngay lập tức nếu Lock thất bại
+    " Reject edit mode immediately if the lock cannot be obtained.
     MESSAGE s068(zmsg_gr23) WITH sy-uname gv_current_log_id DISPLAY LIKE gc_displike_err.
-*    MESSAGE 'Dữ liệu này đang được thao tác ở một cửa sổ khác!' TYPE 'S' DISPLAY LIKE 'E'.
     lv_locked = abap_on.
   ENDIF.
 

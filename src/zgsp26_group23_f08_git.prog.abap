@@ -37,7 +37,7 @@ FORM reverse_map_to_raw.
   ENDIF.
 
   IF <gfs_data> IS NOT ASSIGNED.
-      MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -134,7 +134,12 @@ FORM load_page_to_workspace USING pv_page_no TYPE i.
 
   " Load master row for this page index
   SORT gt_master_sheets BY page_no.
-  READ TABLE gt_master_sheets INTO DATA(ls_sheet) WITH KEY page_no = pv_page_no BINARY SEARCH.
+
+  READ TABLE gt_master_sheets
+    INTO DATA(ls_sheet)
+    WITH KEY page_no = pv_page_no
+    BINARY SEARCH.
+
   IF sy-subrc <> 0.
     RETURN.
   ENDIF.

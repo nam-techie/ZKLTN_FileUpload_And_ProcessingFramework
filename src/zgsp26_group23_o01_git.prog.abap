@@ -59,32 +59,6 @@ MODULE init_0100 OUTPUT.
 ENDMODULE.
 
 *&---------------------------------------------------------------------*
-*& Section: Screen 0200 (history) - PBO
-*&---------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*& Module  STATUS_0200  OUTPUT
-*& Fixed PF-STATUS S002 and title TEXT-071 for history list screen.
-*&---------------------------------------------------------------------*
-MODULE status_0200 OUTPUT.
-  SET PF-STATUS 'S002'.
-  SET TITLEBAR gc_ttbar_t002 WITH TEXT-071.
-
-ENDMODULE.
-
-*&---------------------------------------------------------------------*
-*& Module  INIT_0200  OUTPUT
-*& Skip when GV_ERROR; else build (or refresh) history ALV on first PBO pass.
-*&---------------------------------------------------------------------*
-MODULE init_0200 OUTPUT.
-  IF gv_error = abap_on.
-    RETURN.
-  ENDIF.
-
-  PERFORM build_history_alv_grid.
-ENDMODULE.
-
-*&---------------------------------------------------------------------*
 *& Section: Screen 0100 - PF-STATUS helpers
 *&---------------------------------------------------------------------*
 
@@ -175,3 +149,30 @@ FORM build_exclude_view_raw CHANGING pt_excl TYPE ui_functions.
   ENDIF.
 
 ENDFORM.
+
+
+*&---------------------------------------------------------------------*
+*& Section: Screen 0200 (history) - PBO
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Module  STATUS_0200  OUTPUT
+*& Fixed PF-STATUS S002 and title TEXT-071 for history list screen.
+*&---------------------------------------------------------------------*
+MODULE status_0200 OUTPUT.
+  SET PF-STATUS 'S002'.
+  SET TITLEBAR gc_ttbar_t002 WITH TEXT-071.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*& Module  INIT_0200  OUTPUT
+*& Skip when GV_ERROR; else build (or refresh) history ALV on first PBO pass.
+*&---------------------------------------------------------------------*
+MODULE init_0200 OUTPUT.
+  IF gv_error = abap_on.
+    RETURN.
+  ENDIF.
+
+  PERFORM build_history_alv_grid.
+ENDMODULE.

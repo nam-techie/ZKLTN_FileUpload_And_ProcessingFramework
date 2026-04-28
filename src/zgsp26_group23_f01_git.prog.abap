@@ -73,7 +73,8 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
       DATA(lv_real_page_count) = 0.
 
       DATA: lv_read_sheet_error TYPE abap_bool VALUE abap_off,
-            lt_struct_errors    TYPE string_table.
+            lt_struct_errors    TYPE string_table,
+            lt_hdr_rule_errs    TYPE string_table.
 
       LOOP AT lt_worksheets INTO DATA(lv_sheet_name).
 
@@ -139,7 +140,10 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
                   SORT gt_header_list BY col_pos.
                   READ TABLE gt_header_list ASSIGNING FIELD-SYMBOL(<lfs_hdr>) WITH KEY col_pos = lv_col_idx BINARY SEARCH.
                   IF sy-subrc = 0.
-                    PERFORM f01_parse_header_rule USING lv_value CHANGING <lfs_hdr>.
+                    PERFORM f01_parse_header_rule USING    lv_value
+                                                           lv_sheet_name
+                                                  CHANGING <lfs_hdr>
+                                                           lt_hdr_rule_errs.
                   ENDIF.
                 ELSEIF lv_row_idx >= gc_data_start AND lv_value IS NOT INITIAL.
                   ls_cell = VALUE #( row = lv_row_idx col = lv_col_idx value = lv_value ).
@@ -170,12 +174,12 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
             " Persist sheet package in global multi-sheet table.
             IF gv_dref_table IS NOT INITIAL.
               APPEND VALUE #( page_no     = lv_real_page_count
-                sheet_name  = lv_sheet_name
-                header_list = gt_header_list
-                data_raw   = gt_data_raw
-                dref_data   = gv_dref_table
-                error_log   = gt_error_log
-                is_parsed   = abap_on ) TO gt_master_sheets.
+                              sheet_name  = lv_sheet_name
+                              header_list = gt_header_list
+                              data_raw    = gt_data_raw
+                              dref_data   = gv_dref_table
+                              error_log   = gt_error_log
+                              is_parsed   = abap_on ) TO gt_master_sheets.
             ENDIF.
 
           CATCH cx_fdt_excel_core.
@@ -184,8 +188,11 @@ FORM read_excel_local USING pv_file    TYPE rlgrap-filename
         ENDTRY.
       ENDLOOP.
 
-      PERFORM show_popup_struct_err USING lt_struct_errors.
+      PERFORM show_popup_struct_err USING lt_hdr_rule_errs
+                                          'RULE'.
 
+      PERFORM show_popup_struct_err USING lt_struct_errors
+                                          'TECH'.
 
       gv_total_pages = lines( gt_master_sheets ).
 
@@ -220,7 +227,8 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
         lv_buffer        TYPE xstring,
         lo_excel         TYPE REF TO cl_fdt_xl_spreadsheet,
         lt_worksheets    TYPE if_fdt_doc_spreadsheet=>t_worksheet_names,
-        lt_struct_errors TYPE string_table.
+        lt_struct_errors TYPE string_table,
+        lt_hdr_rule_errs TYPE string_table.
 
   FIELD-SYMBOLS: <lfs_excel_data> TYPE STANDARD TABLE.
   " Binary read by chunk until EOF.
@@ -293,7 +301,10 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
                   SORT gt_header_list BY col_pos.
                   READ TABLE gt_header_list ASSIGNING FIELD-SYMBOL(<lfs_hdr>) WITH KEY col_pos = lv_col_idx BINARY SEARCH.
                   IF sy-subrc = 0.
-                    PERFORM f01_parse_header_rule USING lv_value CHANGING <lfs_hdr>.
+                    PERFORM f01_parse_header_rule USING    lv_value
+                                                           lv_sheet_name
+                                                  CHANGING <lfs_hdr>
+                                                           lt_hdr_rule_errs.
                   ENDIF.
                 ELSEIF lv_row_idx >= gc_data_start AND lv_value IS NOT INITIAL.
                   ls_cell = VALUE #( row = lv_row_idx col = lv_col_idx value = lv_value ).
@@ -326,54 +337,26 @@ FORM read_excel_server USING pv_file TYPE rlgrap-filename
         ENDTRY.
       ENDLOOP.
 
-      IF lt_struct_errors IS NOT INITIAL.
-        DATA: lt_err_display TYPE TABLE OF char200,
-              ls_err_line    TYPE char200.
+      PERFORM show_popup_struct_err USING lt_hdr_rule_errs
+                                          'RULE'.
 
-        CLEAR lt_err_display.
-        ls_err_line = TEXT-045.
-        APPEND ls_err_line TO lt_err_display.
-        LOOP AT lt_struct_errors INTO DATA(lv_struct_err).
-          ls_err_line = |{ lv_struct_err }|.
-          APPEND ls_err_line TO lt_err_display.
-        ENDLOOP.
-        ls_err_line = TEXT-046.
-        APPEND ls_err_line TO lt_err_display.
+      PERFORM show_popup_struct_err USING lt_struct_errors
+                                          'TECH'.
 
-        CALL FUNCTION 'POPUP_WITH_TABLE_DISPLAY'
-          EXPORTING
-            endpos_col   = 100
-            endpos_row   = 20
-            startpos_col = 5
-            startpos_row = 3
-            titletext    = TEXT-045
-          TABLES
-            valuetab     = lt_err_display
-          EXCEPTIONS
-            break_off    = 1
-            OTHERS       = 2.
-        IF sy-subrc <> 0.                                 "#EC CI_SUBRC
-        ENDIF.
+    gv_total_pages = lines( gt_master_sheets ).
 
-        gv_error = abap_on.
-        MESSAGE s034(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-        RETURN.
-      ENDIF.
-
-      gv_total_pages = lines( gt_master_sheets ).
-
-      IF gv_total_pages = 0.
-        MESSAGE s003(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-        gv_error = abap_on.
-        RETURN.
-      ENDIF.
-
-      PERFORM load_page_to_workspace USING 1.
-
-    CATCH cx_fdt_excel_core INTO DATA(lx_excel_err_master).
-      MESSAGE s004(zmsg_gr23) WITH lx_excel_err_master->get_text( ) DISPLAY LIKE gc_displike_err.
+    IF gv_total_pages = 0.
+      MESSAGE s003(zmsg_gr23) DISPLAY LIKE gc_displike_err.
       gv_error = abap_on.
-  ENDTRY.
+      RETURN.
+    ENDIF.
+
+    PERFORM load_page_to_workspace USING 1.
+
+  CATCH cx_fdt_excel_core INTO DATA(lx_excel_err_master).
+    MESSAGE s004(zmsg_gr23) WITH lx_excel_err_master->get_text( ) DISPLAY LIKE gc_displike_err.
+    gv_error = abap_on.
+ENDTRY.
 
 ENDFORM.
 
@@ -397,7 +380,7 @@ FORM browse_file  CHANGING pv_file TYPE rlgrap-filename.
       window_title            = |{ TEXT-042 }|
       default_extension       = 'xlsx'
       file_filter             = |{ TEXT-043 }|
-      multiselection          = abap_off
+      multiselection          = abap_off      " just 1 file
     CHANGING
       file_table              = lt_file_table
       rc                      = lv_rc
@@ -419,89 +402,6 @@ FORM browse_file  CHANGING pv_file TYPE rlgrap-filename.
       pv_file = ls_file_table-filename.
     ENDIF.
   ENDIF.
-
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form F01_PARSE_HEADER_RULE
-*& Parse tech row tokens: [KEY], *, +, [RNG:low-high], [LIST:a;b] into
-*& GTY_EXCEL_HEADER; remainder uppercased becomes TECH_NAME.
-*&---------------------------------------------------------------------*
-FORM f01_parse_header_rule  USING    pv_value TYPE string
-                            CHANGING ps_header TYPE gty_data_header.
-
-  DATA: lv_temp       TYPE string ##NEEDED,
-        lv_rule       TYPE string,
-        lv_clean      TYPE string,
-        lv_remove_str TYPE string.
-
-  " Start from full raw token string.
-  lv_clean = pv_value.
-
-  IF lv_clean CS '[KEY]'.
-    ps_header-is_key = abap_on.
-    REPLACE ALL OCCURRENCES OF '[KEY]' IN lv_clean WITH ''.
-  ENDIF.
-
-  IF lv_clean CS '*'.
-    ps_header-is_mand = abap_on.
-    REPLACE ALL OCCURRENCES OF '*' IN lv_clean WITH ''. " remove mandatory marker
-  ENDIF.
-
-  IF lv_clean CS '+'.
-    ps_header-is_pos = abap_on.
-    REPLACE ALL OCCURRENCES OF '+' IN lv_clean WITH ''. " remove positive-only marker
-  ENDIF.
-
-  IF lv_clean CS '[RNG:'.
-
-    DATA: lv_float_low  TYPE string,
-          lv_float_high TYPE string.
-
-    SPLIT lv_clean  AT '[RNG:' INTO lv_temp lv_rule.
-    SPLIT lv_rule   AT ']'     INTO lv_rule lv_temp.
-    SPLIT lv_rule   AT '-'     INTO lv_float_low lv_float_high.
-*    SPLIT lv_rule   AT '-'     INTO ps_header-rng_low ps_header-rng_high.
-
-    IF lv_float_high IS NOT INITIAL AND lv_float_low IS NOT INITIAL.
-*    IF ps_header-rng_low IS NOT INITIAL AND ps_header-rng_high IS NOT INITIAL.
-      TRY.
-          " Numeric compare via F; swap bounds if reversed.
-          DATA:
-*                lv_float_low  TYPE f,
-*                lv_float_high TYPE f,
-                lv_swap_temp  TYPE decfloat34.
-
-          ps_header-rng_low  = lv_float_low.
-          ps_header-rng_high = lv_float_high.
-*          lv_float_low  = ps_header-rng_low.
-*          lv_float_high = ps_header-rng_high.
-
-          IF ps_header-rng_low > ps_header-rng_high.
-            lv_swap_temp       = ps_header-rng_low.
-            ps_header-rng_low  = ps_header-rng_high.
-            ps_header-rng_high = lv_swap_temp.
-          ENDIF.
-
-        CATCH cx_sy_conversion_error.
-          CLEAR: ps_header-rng_low, ps_header-rng_high.
-      ENDTRY.
-    ENDIF.
-
-    CONCATENATE '[RNG:' lv_rule ']' INTO lv_remove_str.
-    REPLACE ALL OCCURRENCES OF lv_remove_str IN lv_clean WITH ''.
-  ENDIF.
-
-  IF lv_clean CS '[LIST:'.
-    SPLIT lv_clean AT '[LIST:' INTO lv_temp lv_rule.
-    SPLIT lv_rule  AT ']'      INTO ps_header-val_list lv_temp.
-    CONCATENATE '[LIST:' ps_header-val_list ']' INTO lv_remove_str.
-    REPLACE ALL OCCURRENCES OF lv_remove_str IN lv_clean WITH ''.
-  ENDIF.
-
-  lv_clean = to_upper( replace( val = lv_clean sub = ` ` with = `` occ = 0 ) ).
-
-  ps_header-tech_name = lv_clean.
 
 ENDFORM.
 
@@ -541,6 +441,224 @@ FORM browse_server_file CHANGING pv_file TYPE rlgrap-filename.
     pv_file = lv_server_file.
   ENDIF.
 ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form F01_PARSE_HEADER_RULE
+*& Parse tech row tokens: [KEY], *, +, [RNG:low~high], [LIST:a;b] into
+*& GTY_DATA_HEADER
+*&---------------------------------------------------------------------*
+FORM f01_parse_header_rule USING    pv_raw_value     TYPE string
+                                    pv_sheet_name    TYPE string
+                           CHANGING ps_header        TYPE gty_data_header
+                                    pt_hdr_rule_errs TYPE string_table.
+
+  DATA: lv_clean      TYPE string,
+        lv_count      TYPE i,
+        lv_float_low  TYPE string,
+        lv_float_high TYPE string,
+        lv_dummy      TYPE string,
+        lv_err_msg    TYPE string.
+
+*  ps_header-is_invalid = abap_false.
+  lv_clean = pv_raw_value.
+
+  " 1. CHECK DUPLICATE RULES
+  FIND ALL OCCURRENCES OF PCRE '\[RNG:' IN lv_clean MATCH COUNT lv_count.
+  IF lv_count > 1.
+*    ps_header-is_invalid = abap_true.
+    lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: Multiple [RNG] tags found in one column.|.
+    PERFORM add_header_error USING    lv_err_msg
+                                      pv_sheet_name
+                             CHANGING pt_hdr_rule_errs.
+    RETURN.
+  ENDIF.
+
+  FIND ALL OCCURRENCES OF PCRE '\[LIST:' IN lv_clean MATCH COUNT lv_count.
+  IF lv_count > 1.
+*    ps_header-is_invalid = abap_true.
+    lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: Multiple [LIST] tags found in one column.|.
+    PERFORM add_header_error USING    lv_err_msg
+                                       pv_sheet_name
+                              CHANGING pt_hdr_rule_errs.
+    RETURN.
+  ENDIF.
+
+  " 2. CHECK RULE CONFLICTS
+  IF ( lv_clean CS '[RNG:' ) AND ( lv_clean CS '[LIST:' ).
+*    ps_header-is_invalid = abap_true.
+    lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: [RNG] and [LIST] cannot be used together.|.
+    PERFORM add_header_error USING    lv_err_msg
+                                       pv_sheet_name
+                              CHANGING pt_hdr_rule_errs.
+    RETURN.
+  ENDIF.
+
+  IF ( lv_clean CS '[KEY]' ) AND ( lv_clean CS '[LIST:' ).
+*    ps_header-is_invalid = abap_true.
+    lv_err_msg = |Column { ps_header-col_pos }: Logic Error: Primary Key [KEY] should not be restricted by [LIST].|.
+    PERFORM add_header_error USING    lv_err_msg
+                                         pv_sheet_name
+                              CHANGING pt_hdr_rule_errs.
+    RETURN.
+  ENDIF.
+
+  " 3. PARSE BASIC FLAGS
+  IF lv_clean CS '[KEY]'.
+    ps_header-is_key = abap_true.
+    lv_clean = replace( val = lv_clean pcre = '\[KEY\]' with = '' occ = 0 ).
+  ENDIF.
+
+  IF lv_clean CS '*'.
+    ps_header-is_mand = abap_true.
+    lv_clean = replace( val = lv_clean pcre = '\*' with = '' occ = 0 ).
+  ENDIF.
+
+  IF lv_clean CS '+'.
+    ps_header-is_pos = abap_true.
+    lv_clean = replace( val = lv_clean pcre = '\+' with = '' occ = 0 ).
+  ENDIF.
+
+  " 4. PARSE RANGE RULE (Strict Regex Validation)
+  IF lv_clean CS '[RNG:'.
+    " Regex: [RNG:min~max] allowing decimals and negative numbers
+    FIND PCRE '\[RNG:(-?\d+(\.\d+)?)\~(-?\d+(\.\d+)?)\]' IN lv_clean
+         SUBMATCHES lv_float_low lv_dummy lv_float_high lv_dummy.
+
+    IF sy-subrc = 0.
+      TRY.
+          DATA lv_swap_temp TYPE decfloat34.
+          ps_header-rng_low  = lv_float_low.
+          ps_header-rng_high = lv_float_high.
+
+          " Auto-swap if Min > Max
+          IF  ps_header-rng_low  >  ps_header-rng_high.
+            lv_swap_temp       = ps_header-rng_low.
+            ps_header-rng_low  = ps_header-rng_high.
+            ps_header-rng_high = lv_swap_temp.
+          ENDIF.
+        CATCH cx_sy_conversion_error.
+*          ps_header-is_invalid = abap_true.
+          lv_err_msg = |Column { ps_header-col_pos }: Logic Error: Failed to convert [RNG] values to numbers.|.
+          PERFORM add_header_error USING    lv_err_msg
+                                            pv_sheet_name
+                                   CHANGING pt_hdr_rule_errs.
+          RETURN.
+      ENDTRY.
+
+      " Remove valid RNG tag
+      lv_clean = replace( val = lv_clean pcre = '\[RNG:-?\d+(\.\d+)?\~-?\d+(\.\d+)?\]' with = '' ).
+    ELSE.
+*      ps_header-is_invalid = abap_true.
+      lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: Invalid [RNG] format. Expected: [RNG:min~max] without extra characters.|.
+      PERFORM add_header_error USING    lv_err_msg
+                                        pv_sheet_name
+                               CHANGING pt_hdr_rule_errs.
+      RETURN.
+    ENDIF.
+  ENDIF.
+
+  " 5. PARSE LIST RULE (Strict Regex Validation)
+  IF lv_clean CS '[LIST:'.
+    " Regex: [LIST:val1,val2]
+    FIND PCRE '\[LIST:([^\[\]]+)\]' IN lv_clean SUBMATCHES ps_header-val_list.
+
+    IF sy-subrc = 0.
+      " Detect empty values or consecutive commas (e.g., A,,B or starting/ending with comma)
+      IF ps_header-val_list CS ',,' OR
+         ps_header-val_list(1) = ',' OR
+         substring( val = ps_header-val_list off = strlen( ps_header-val_list ) - 1 ) = ','.
+
+*        ps_header-is_invalid = abap_true.
+        lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: [LIST] contains consecutive or dangling commas.|.
+        PERFORM add_header_error USING    lv_err_msg
+                                          pv_sheet_name
+                                 CHANGING pt_hdr_rule_errs.
+        RETURN.
+      ENDIF.
+
+      " Remove valid LIST tag
+      lv_clean = replace( val = lv_clean pcre = '\[LIST:[^\[\]]+\]' with = '' ).
+    ELSE.
+*      ps_header-is_invalid = abap_true.
+      lv_err_msg = |Column { ps_header-col_pos }: Syntax Error: Invalid [LIST] format. Nested brackets are not allowed.|.
+      PERFORM add_header_error USING    lv_err_msg
+                                        pv_sheet_name
+                               CHANGING pt_hdr_rule_errs.
+      RETURN.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*FORM f01_parse_header_rule  USING    pv_value TYPE string
+*                            CHANGING ps_header TYPE gty_data_header.
+*
+*  DATA: lv_temp       TYPE string ##NEEDED,
+*        lv_rule       TYPE string,
+*        lv_clean      TYPE string,
+*        lv_remove_str TYPE string.
+*
+*  " Start from full raw token string.
+*  lv_clean = pv_value.
+*
+*  IF lv_clean CS '+'.
+*    ps_header-is_pos = abap_on.
+*    REPLACE ALL OCCURRENCES OF '+' IN lv_clean WITH ''. " remove positive-only marker
+*  ENDIF.
+*
+*  IF lv_clean CS '[KEY]'.
+*    ps_header-is_key = abap_on.
+*    REPLACE ALL OCCURRENCES OF '[KEY]' IN lv_clean WITH ''.
+*  ENDIF.
+*
+*  IF lv_clean CS '*'.
+*    ps_header-is_mand = abap_on.
+*    REPLACE ALL OCCURRENCES OF '*' IN lv_clean WITH ''. " remove mandatory marker
+*  ENDIF.
+*
+*  IF lv_clean CS '[RNG:'.
+*
+*    DATA: lv_float_low  TYPE string,
+*          lv_float_high TYPE string.
+*
+*    SPLIT lv_clean  AT '[RNG:' INTO lv_temp lv_rule.
+*    SPLIT lv_rule   AT ']'     INTO lv_rule lv_temp.
+*    SPLIT lv_rule   AT '~'     INTO lv_float_low lv_float_high.
+*
+*    IF lv_float_high IS NOT INITIAL AND lv_float_low IS NOT INITIAL.
+*      TRY.
+*
+*          DATA:lv_swap_temp  TYPE decfloat34.
+*
+*          ps_header-rng_low  = lv_float_low.
+*          ps_header-rng_high = lv_float_high.
+*
+*          IF ps_header-rng_low > ps_header-rng_high.
+*            lv_swap_temp       = ps_header-rng_low.
+*            ps_header-rng_low  = ps_header-rng_high.
+*            ps_header-rng_high = lv_swap_temp.
+*          ENDIF.
+*
+*        CATCH cx_sy_conversion_error.
+*          CLEAR: ps_header-rng_low, ps_header-rng_high.
+*      ENDTRY.
+*    ENDIF.
+*
+*    CONCATENATE '[RNG:' lv_rule ']' INTO lv_remove_str.
+*    REPLACE ALL OCCURRENCES OF lv_remove_str IN lv_clean WITH ''.
+*  ENDIF.
+*
+*  IF lv_clean CS '[LIST:'.
+*    SPLIT lv_clean AT '[LIST:' INTO lv_temp lv_rule.
+*    SPLIT lv_rule  AT ']'      INTO ps_header-val_list lv_temp.
+*    CONCATENATE '[LIST:' ps_header-val_list ']' INTO lv_remove_str.
+*    REPLACE ALL OCCURRENCES OF lv_remove_str IN lv_clean WITH ''.
+*  ENDIF.
+*
+*  lv_clean = to_upper( replace( val = lv_clean sub = ` ` with = `` occ = 0 ) ).
+*
+*  ps_header-tech_name = lv_clean.
+*
+*ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Section: CSV/TXT — lines, preview, delimited parse
@@ -623,40 +741,6 @@ FORM read_text_local USING pv_file          TYPE rlgrap-filename
       PERFORM parse_string_to_raw USING    lt_string_tab pv_type
                                   CHANGING lt_struct_errors.
 
-      IF lt_struct_errors IS NOT INITIAL.
-        DATA: lt_err_display TYPE TABLE OF char200,
-              ls_err_line    TYPE char200.
-
-        CLEAR lt_err_display.
-        ls_err_line = TEXT-045.
-        APPEND ls_err_line TO lt_err_display.
-        LOOP AT lt_struct_errors INTO DATA(lv_struct_err).
-          ls_err_line = |  - { lv_struct_err }|.
-          APPEND ls_err_line TO lt_err_display.
-        ENDLOOP.
-        ls_err_line = TEXT-046.
-        APPEND ls_err_line TO lt_err_display.
-
-        CALL FUNCTION 'POPUP_WITH_TABLE_DISPLAY'
-          EXPORTING
-            endpos_col   = 100
-            endpos_row   = 20
-            startpos_col = 5
-            startpos_row = 3
-            titletext    = TEXT-045
-          TABLES
-            valuetab     = lt_err_display
-          EXCEPTIONS
-            break_off    = 1
-            OTHERS       = 2.
-        IF sy-subrc <> 0.                                 "#EC CI_SUBRC
-        ENDIF.
-
-        gv_error = abap_on.
-        MESSAGE s034(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-        RETURN.
-      ENDIF.
-
     ENDIF.
 
   ELSE.
@@ -724,7 +808,7 @@ FORM read_text_server USING    pv_file          TYPE rlgrap-filename
       IF p_ftype <> gc_stored_file.
         DATA: lt_struct_errors TYPE string_table.
         PERFORM parse_string_to_raw USING    lt_string_tab pv_type
-                              CHANGING lt_struct_errors.
+                                    CHANGING lt_struct_errors.
       ENDIF.
 
     ELSE.
@@ -748,13 +832,14 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
                                   pv_type          TYPE char10
                          CHANGING pt_struct_errors TYPE string_table.
 
-  DATA: lt_cols   TYPE TABLE OF string,
-        lv_val    TYPE string,
-        ls_cell   TYPE gty_data_cell,
-        ls_header TYPE gty_data_header,
-        lv_row    TYPE i,
-        lv_col    TYPE i,
-        lv_sep    TYPE char1.
+  DATA: lt_cols          TYPE TABLE OF string,
+        lv_val           TYPE string,
+        ls_cell          TYPE gty_data_cell,
+        ls_header        TYPE gty_data_header,
+        lv_row           TYPE i,
+        lv_col           TYPE i,
+        lv_sep           TYPE char1,
+        lt_hdr_rule_errs TYPE string_table.
 
   IF pv_type = gc_ftype_csv.
     lv_sep = ','.
@@ -788,7 +873,10 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
         SORT gt_header_list BY col_pos.
         READ TABLE gt_header_list ASSIGNING FIELD-SYMBOL(<lfs_hdr>) WITH KEY col_pos = lv_col BINARY SEARCH.
         IF sy-subrc = 0.
-          PERFORM f01_parse_header_rule USING lv_val CHANGING <lfs_hdr>.
+          PERFORM f01_parse_header_rule USING    lv_val
+                                                 ''
+                                        CHANGING <lfs_hdr>
+                                                 lt_hdr_rule_errs.
         ENDIF.
 
       ELSEIF lv_row >= gc_data_start.
@@ -808,6 +896,12 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
     PERFORM build_dynamic_data USING    ''
                                CHANGING pt_struct_errors.
 
+    PERFORM show_popup_struct_err USING lt_hdr_rule_errs
+                                        'RULE'.
+
+    PERFORM show_popup_struct_err USING pt_struct_errors
+                                        'TECH'.
+
     CHECK gv_error = abap_off.
 
     PERFORM validate_data.
@@ -815,7 +909,7 @@ FORM parse_string_to_raw USING    pt_string_tab    TYPE string_table
     APPEND VALUE #( page_no     = 1
                     sheet_name  = ''
                     header_list = gt_header_list
-                    data_raw   = gt_data_raw
+                    data_raw    = gt_data_raw
                     dref_data   = gv_dref_table
                     error_log   = gt_error_log
                     is_parsed   = abap_on ) TO gt_master_sheets.
@@ -829,13 +923,15 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *&      --> LT_STRUCT_ERRORS
 *&---------------------------------------------------------------------*
-FORM show_popup_struct_err  USING    pt_struct_errors TYPE string_table.
+FORM show_popup_struct_err  USING    pt_struct_errors TYPE string_table
+                                     pv_err_type      TYPE char4.
   IF pt_struct_errors IS NOT INITIAL.
     DATA: lt_err_display TYPE TABLE OF char200,
           ls_err_line    TYPE char200.
 
     CLEAR lt_err_display.
-    ls_err_line = TEXT-045.
+    ls_err_line = COND #( WHEN pv_err_type = 'TECH' THEN TEXT-045
+                          WHEN pv_err_type = 'RULE' THEN TEXT-135 ).
     APPEND ls_err_line TO lt_err_display.
     LOOP AT pt_struct_errors INTO DATA(lv_struct_err).
       ls_err_line = |{ lv_struct_err }|.

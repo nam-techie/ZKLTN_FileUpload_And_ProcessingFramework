@@ -11,6 +11,124 @@
 
 
 *&---------------------------------------------------------------------*
+*& Section: Screen layout — containers, grids, event wiring
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Form INIT_UI_COMPONENTS
+*& One-shot: containers, grids/editor, ALV event registration.
+*&---------------------------------------------------------------------*
+FORM init_ui_components.
+  IF go_cont_tabs IS BOUND. RETURN. ENDIF.
+
+  PERFORM init_containers.
+  PERFORM init_grids_and_editor.
+  PERFORM register_alv_events.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form INIT_CONTAINERS
+*& Create custom controls: tab area, main area, splitter 65/35 columns.
+*&---------------------------------------------------------------------*
+FORM init_containers.
+
+  CREATE OBJECT go_cont_tabs
+    EXPORTING
+      container_name = 'CC_TABS'.
+
+  CREATE OBJECT go_cont_main
+    EXPORTING
+      container_name = 'CC_MAIN'.
+
+  CREATE OBJECT go_toolbar_tabs
+    EXPORTING
+      parent = go_cont_tabs.
+
+  CREATE OBJECT go_split_main
+    EXPORTING
+      parent  = go_cont_main
+      rows    = 1
+      columns = 2.
+
+  go_cont_left  = go_split_main->get_container(
+    row = 1
+    column = 1
+  ).
+
+  go_cont_right = go_split_main->get_container(
+    row = 1
+    column = 2
+  ).
+
+  " Set splitter columns to relative sizing (percentage-based widths).
+  go_split_main->set_column_mode( cl_gui_splitter_container=>mode_relative ).
+
+  go_split_main->set_column_width(
+    id = 1
+    width = 65
+  ).
+
+  go_split_main->set_column_width(
+    id = 2
+    width = 35
+  ).
+
+  " Force SAP GUI to process all pending frontend UI updates immediately.
+  cl_gui_cfw=>flush( ).
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form INIT_GRIDS_AND_EDITOR
+*& Master/detail ALV on splitter children; full-width textedit on CC_MAIN.
+*&---------------------------------------------------------------------*
+FORM init_grids_and_editor.
+
+  CREATE OBJECT go_grid_master
+    EXPORTING
+      i_parent = go_cont_left.
+
+  CREATE OBJECT go_grid_detail
+    EXPORTING
+      i_parent = go_cont_right.
+
+  " Create text editor for raw CSV/TXT preview display.
+  CREATE OBJECT go_text_edit
+    EXPORTING
+      parent                     = go_cont_main
+      wordwrap_mode              = cl_gui_textedit=>wordwrap_at_fixed_position
+      wordwrap_position          = 255
+      wordwrap_to_linebreak_mode = cl_gui_textedit=>wordwrap_off.
+
+  " Set preview editor to read-only mode.
+  go_text_edit->set_readonly_mode( cl_gui_textedit=>true ).
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form REGISTER_ALV_EVENTS
+*& Bind lcl_alv_events (include C00) to toolbar + both ALV grids.
+*&---------------------------------------------------------------------*
+FORM register_alv_events.
+
+  IF go_alv_events IS NOT BOUND.
+    CREATE OBJECT go_alv_events.
+  ENDIF.
+
+  SET HANDLER go_alv_events->on_tab_click FOR go_toolbar_tabs.
+  SET HANDLER go_alv_events->on_master_double_click FOR go_grid_master.
+
+  go_grid_detail->register_edit_event( cl_gui_alv_grid=>mc_evt_enter ).
+  go_grid_detail->register_edit_event( cl_gui_alv_grid=>mc_evt_modified ).
+  SET HANDLER go_alv_events->handle_data_changed FOR go_grid_detail.
+
+  SET HANDLER go_alv_events->on_detail_hotspot_click FOR go_grid_detail.
+
+ENDFORM.
+
+
+*&---------------------------------------------------------------------*
 *& Section: Toolbar (worksheet tabs as toolbar buttons)
 *&---------------------------------------------------------------------*
 
@@ -123,16 +241,20 @@ FORM switch_alv_mode.
   " Only the detail grid is editable in spreadsheet mode.
   IF go_grid_detail IS BOUND AND gv_plain_preview = abap_off.
     go_grid_detail->get_frontend_fieldcatalog( IMPORTING et_fieldcatalog = lt_fcat ).
+
     LOOP AT lt_fcat ASSIGNING FIELD-SYMBOL(<ls_fcat>) WHERE fieldname = 'VALUE'.
       <ls_fcat>-edit = gv_edit_mode.
     ENDLOOP.
+
     go_grid_detail->set_frontend_fieldcatalog( lt_fcat ).
     go_grid_detail->set_ready_for_input( lv_ready ).
     go_grid_detail->set_drop_down_table( it_drop_down = gt_drop_detail ).
     go_grid_detail->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ).
+
     IF go_grid_master IS BOUND.
       go_grid_master->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ).
     ENDIF.
+
     " CSV/TXT plain preview: lock/unlock GUI text control instead.
   ELSEIF go_text_edit IS BOUND AND gv_plain_preview = abap_on.
     IF gv_edit_mode = abap_on.
@@ -141,87 +263,6 @@ FORM switch_alv_mode.
       go_text_edit->set_readonly_mode( cl_gui_textedit=>true ).  " view only
     ENDIF.
   ENDIF.
-ENDFORM.
-
-
-*&---------------------------------------------------------------------*
-*& Section: Screen layout — containers, grids, event wiring
-*&---------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*& Form INIT_UI_COMPONENTS
-*& One-shot: containers, grids/editor, ALV event registration.
-*&---------------------------------------------------------------------*
-FORM init_ui_components.
-  IF go_cont_tabs IS BOUND. RETURN. ENDIF.
-
-  PERFORM init_containers.
-  PERFORM init_grids_and_editor.
-  PERFORM register_alv_events.
-
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form INIT_CONTAINERS
-*& Create custom controls: tab area, main area, splitter 65/35 columns.
-*&---------------------------------------------------------------------*
-FORM init_containers.
-
-  CREATE OBJECT go_cont_tabs EXPORTING container_name = 'CC_TABS'.
-  CREATE OBJECT go_cont_main EXPORTING container_name = 'CC_MAIN'.
-
-  CREATE OBJECT go_toolbar_tabs EXPORTING parent = go_cont_tabs.
-
-  CREATE OBJECT go_split_main EXPORTING parent = go_cont_main rows = 1 columns = 2.
-
-  go_cont_left  = go_split_main->get_container( row = 1 column = 1 ).
-  go_cont_right = go_split_main->get_container( row = 1 column = 2 ).
-
-  go_split_main->set_column_mode( cl_gui_splitter_container=>mode_relative ).
-  go_split_main->set_column_width( id = 1 width = 65 ).
-  go_split_main->set_column_width( id = 2 width = 35 ).
-
-  cl_gui_cfw=>flush( ).
-
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form INIT_GRIDS_AND_EDITOR
-*& Master/detail ALV on splitter children; full-width textedit on CC_MAIN.
-*&---------------------------------------------------------------------*
-FORM init_grids_and_editor.
-
-  CREATE OBJECT go_grid_master EXPORTING i_parent = go_cont_left.
-  CREATE OBJECT go_grid_detail EXPORTING i_parent = go_cont_right.
-
-  CREATE OBJECT go_text_edit
-    EXPORTING
-      parent                     = go_cont_main
-      wordwrap_mode              = cl_gui_textedit=>wordwrap_at_fixed_position
-      wordwrap_position          = 255
-      wordwrap_to_linebreak_mode = cl_gui_textedit=>wordwrap_off.
-
-  go_text_edit->set_readonly_mode( cl_gui_textedit=>true ).
-
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form REGISTER_ALV_EVENTS
-*& Bind lcl_alv_events (include C00) to toolbar + both ALV grids.
-*&---------------------------------------------------------------------*
-FORM register_alv_events.
-
-  IF go_alv_events IS NOT BOUND. CREATE OBJECT go_alv_events. ENDIF.
-
-  SET HANDLER go_alv_events->on_tab_click FOR go_toolbar_tabs.
-  SET HANDLER go_alv_events->on_master_double_click FOR go_grid_master.
-
-  go_grid_detail->register_edit_event( cl_gui_alv_grid=>mc_evt_enter ).
-  go_grid_detail->register_edit_event( cl_gui_alv_grid=>mc_evt_modified ).
-  SET HANDLER go_alv_events->handle_data_changed FOR go_grid_detail.
-
-  SET HANDLER go_alv_events->on_detail_hotspot_click FOR go_grid_detail.
-
 ENDFORM.
 
 *&---------------------------------------------------------------------*
@@ -247,7 +288,9 @@ FORM show_raw_preview_ui.
   lv_crlf = cl_abap_char_utilities=>cr_lf.
 
   " Single string for the whole file body.
-  CONCATENATE LINES OF gt_preview_lines INTO lv_full_str SEPARATED BY lv_crlf.
+  CONCATENATE LINES OF gt_preview_lines
+    INTO lv_full_str
+    SEPARATED BY lv_crlf.
 
   " Avoid dump: use SET_TEXTSTREAM (string) instead of table-based setters.
   CALL METHOD go_text_edit->set_textstream
@@ -302,6 +345,32 @@ FORM hide_raw_show_alv_ui.
 ENDFORM.
 
 *&---------------------------------------------------------------------*
+*& Form DISPLAY_MAIN_ALVS
+*& Full master refresh: structure/data, fieldcat, first display, detail.
+*&---------------------------------------------------------------------*
+FORM display_main_alvs.
+
+  PERFORM prepare_master_alv_data.
+
+  DATA: lt_fcat    TYPE lvc_t_fcat,
+        ls_layo    TYPE lvc_s_layo,
+        lt_exclude TYPE ui_functions.
+
+  PERFORM build_master_fcat CHANGING lt_fcat ls_layo lt_exclude.
+
+  go_grid_master->set_table_for_first_display(
+    EXPORTING is_layout            = ls_layo
+              it_toolbar_excluding = lt_exclude
+    CHANGING  it_outtab            = <gfs_master>
+              it_fieldcatalog      = lt_fcat ).
+
+  cl_gui_cfw=>flush( ).
+
+  PERFORM prepare_detail_alvs.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
 *& Section: Master ALV — dynamic structure and data
 *&---------------------------------------------------------------------*
 
@@ -351,12 +420,15 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
   DATA: lo_type TYPE REF TO cl_abap_typedescr,
         lo_elem TYPE REF TO cl_abap_elemdescr.
 
-  pt_comp = VALUE #( ( name = 'DATA_ROW' type = cl_abap_elemdescr=>get_i( ) )
+  pt_comp = VALUE #( ( name = 'DATA_ROW'    type = cl_abap_elemdescr=>get_i( ) )
                      ( name = 'STATUS_ICON' type = cl_abap_elemdescr=>get_c( 4 ) )
                      ).
 
   SORT gt_master_sheets BY page_no.
-  READ TABLE gt_master_sheets INTO DATA(ls_master) WITH KEY page_no = gv_current_page BINARY SEARCH.
+  READ TABLE gt_master_sheets
+  INTO DATA(ls_master)
+  WITH KEY page_no = gv_current_page
+  BINARY SEARCH.
 
   IF sy-subrc <> 0.
     gv_error = abap_on.
@@ -403,42 +475,152 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
 
 ENDFORM.
 
-
 *&---------------------------------------------------------------------*
-*& Form DISPLAY_MAIN_ALVS
-*& Full master refresh: structure/data, fieldcat, first display, detail.
+*& Form BUILD_MASTER_DATA
+*& Single pass over <gfs_data>: MOVE-CORRESPONDING into master line shape,
+*& then fill DATA_ROW, ERR_COUNT, STATUS_ICON (red/yellow/green).
 *&---------------------------------------------------------------------*
-FORM display_main_alvs.
+FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
 
-  PERFORM prepare_master_alv_data.
+  DATA: lv_dref_line TYPE REF TO data.
 
-  DATA: lt_fcat    TYPE lvc_t_fcat,
-        ls_layo    TYPE lvc_s_layo,
-        lt_exclude TYPE ui_functions.
+  CREATE DATA lv_dref_line TYPE HANDLE lo_struct.
+  FIELD-SYMBOLS: <lfs_m_row> TYPE any,
+                 <lfs_val>   TYPE any,
+                 <lfs_stat>  TYPE any.
+  ASSIGN lv_dref_line->* TO <lfs_m_row>.
 
-  PERFORM build_master_fcat CHANGING lt_fcat ls_layo lt_exclude.
+  " One loop over data rows only (O(N)); no per-column inner loops here.
 
-  go_grid_master->set_table_for_first_display(
-    EXPORTING is_layout            = ls_layo
-              it_toolbar_excluding = lt_exclude
-    CHANGING  it_outtab            = <gfs_master>
-              it_fieldcatalog      = lt_fcat ).
+  IF <gfs_data> IS NOT ASSIGNED.
+    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    RETURN.
+  ENDIF.
 
-  cl_gui_cfw=>flush( ).
+  LOOP AT <gfs_data> ASSIGNING FIELD-SYMBOL(<lfs_d_row>).
+    UNASSIGN <lfs_stat>.
+    CLEAR <lfs_m_row>.
+    DATA(lv_real_row) = sy-tabix + gc_data_start - 1.
 
-  PERFORM refresh_detail_alvs.
+    " Fast copy: identically named components from data row to master row;
+    " custom columns (DATA_ROW, STATUS_ICON, ERR_COUNT) set explicitly below.
+*    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>.
+    <lfs_m_row> = CORRESPONDING #( <lfs_d_row> ).
+*    <lfs_d_row> = <lfs_m_row>. OBSOLETE SYNTAX
+
+    " Custom columns (once per output row).
+    ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
+    <lfs_val> = lv_real_row.
+
+    " Error count for this logical spreadsheet row.
+    DATA(lv_err_count) = 0.
+    LOOP AT gt_error_log TRANSPORTING NO FIELDS WHERE row_index = lv_real_row.
+      lv_err_count += 1.
+    ENDLOOP.
+
+    ASSIGN COMPONENT 'ERR_COUNT' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
+    <lfs_val> = lv_err_count.
+
+    " Traffic light: errors / dirty / OK.
+    ASSIGN COMPONENT 'STATUS_ICON' OF STRUCTURE <lfs_m_row> TO <lfs_stat>.
+    IF <lfs_stat> IS ASSIGNED.
+*      IF lv_err_count > 0.
+*        <lfs_stat> = icon_led_red.
+*      ELSEIF line_exists( gt_row_dirty[ page_no = gv_current_page excel_row = lv_real_row ] ).
+*        <lfs_stat> = icon_led_yellow.
+*      ELSE.
+*        <lfs_stat> = icon_led_green.
+*      ENDIF.
+
+      IF line_exists( gt_row_dirty[ page_no = gv_current_page data_row = lv_real_row ] ).
+        <lfs_stat> = icon_led_yellow.
+      ELSEIF lv_err_count > 0.
+        <lfs_stat> = icon_led_red.
+      ELSE.
+        <lfs_stat> = icon_led_green.
+      ENDIF.
+    ENDIF.
+
+    APPEND <lfs_m_row> TO <gfs_master>.
+  ENDLOOP.
 
 ENDFORM.
 
 *&---------------------------------------------------------------------*
-*& Section: Detail ALV (vertical field list)
+*& Form BUILD_MASTER_FCAT
+*& Master ALV columns: keys, LEDs, dynamic data cols, ERR_COUNT; toolbar
+*& excludes insert/delete row.
 *&---------------------------------------------------------------------*
+FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
+                                ps_layo    TYPE lvc_s_layo
+                                pt_exclude TYPE ui_functions.
+
+  DATA: lt_comp      TYPE cl_abap_structdescr=>component_table,
+        ls_comp      LIKE LINE OF lt_comp,
+        lv_base_name TYPE string,
+        lv_new_name  TYPE string.
+
+  ps_layo-cwidth_opt = abap_on.
+  ps_layo-zebra      = abap_on.
+  ps_layo-sel_mode   = 'A'.
+  ps_layo-grid_title = TEXT-026.
+
+  pt_fcat = VALUE #(
+    ( fieldname = 'DATA_ROW'
+      coltext   = TEXT-027
+      col_pos   = 1
+*      hotspot   = abap_on
+*      key       = abap_on
+      just      = 'C' )
+
+    ( fieldname = 'STATUS_ICON'
+      coltext   = TEXT-028
+      col_pos   = 2
+      icon      = abap_on
+      just      = 'C'
+      outputlen = 4
+      scrtext_s = TEXT-028
+      scrtext_m = TEXT-028
+      scrtext_l = TEXT-028 )
+  ).
+
+  DATA(lv_pos) = 2.
+
+  LOOP AT gt_header_list INTO DATA(ls_hdr).
+
+    lv_base_name = ls_hdr-tech_name.
+
+    PERFORM handle_duplicated_tech_name USING lv_base_name
+                                   lt_comp
+                         CHANGING  lv_new_name.
+    ls_comp-name = lv_new_name.
+    APPEND ls_comp TO lt_comp.
+
+    lv_pos += 1.
+    APPEND VALUE #(
+      fieldname = lv_new_name
+      coltext   = ls_hdr-descr
+      col_pos   = lv_pos
+      key       = ls_hdr-is_key
+    ) TO pt_fcat.
+  ENDLOOP.
+
+  APPEND VALUE #(
+    fieldname = 'ERR_COUNT'
+    coltext   = TEXT-029
+    col_pos   = lv_pos + 1
+    just      = 'C'
+  ) TO pt_fcat.
+
+  PERFORM get_alv_exclude_tb_func CHANGING pt_exclude.
+
+ENDFORM.
 
 *&---------------------------------------------------------------------*
-*& Form REFRESH_DETAIL_ALVS
+*& Form PREPARE_DETAIL_ALVS
 *& Rebuild GT_VERTICAL_DATA; first display or lightweight grid refresh.
 *&---------------------------------------------------------------------*
-FORM refresh_detail_alvs.
+FORM prepare_detail_alvs.
 
   DATA: lv_has_error TYPE abap_bool.
 
@@ -458,21 +640,21 @@ FORM refresh_detail_alvs.
 ENDFORM.
 
 *&---------------------------------------------------------------------*
+*& Section: Detail ALV (vertical field list)
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
 *& Form BUILD_VERTICAL_DATA
 *& For selected data row: scan headers, map values, DDIC list, date F4,
 *& aggregate GT_ERROR_LOG lines into ERROR_MSG / cell colors.
 *&---------------------------------------------------------------------*
 FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
 
+  " Declare variables to handle dropdown/detail.
   DATA: lt_values TYPE TABLE OF string,
         lv_val    TYPE string,
-        lv_dh     TYPE int4,
+        lv_dh     TYPE int4,            " Dropdown handle.
         ls_vert   TYPE gty_vertical_data.
-
-  DATA: lt_comp      TYPE cl_abap_structdescr=>component_table,
-        ls_comp      LIKE LINE OF lt_comp,
-        lv_base_name TYPE string,
-        lv_new_name  TYPE string.
 
   CLEAR: gt_vertical_data, gt_drop_detail.
   CLEAR: lt_values, lv_val, lv_dh.
@@ -486,25 +668,14 @@ FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
     IF sy-subrc = 0.
       LOOP AT gt_header_list INTO DATA(ls_hdr).
 
-*        lv_base_name = ls_hdr-tech_name.
-*
-*        PERFORM handle_duplicated_tech_name USING lv_base_name
-*                                   lt_comp
-*                         CHANGING  lv_new_name.
-*        ls_comp-name = lv_new_name.
-*        APPEND ls_comp TO lt_comp.
-*        ls_hdr-tech_name = lv_new_name.
-
-*        "col_pos need to be plus 2 because <gfs_master> has more 2 column at begining than the real col pos at gt_header_list
         ASSIGN COMPONENT ls_hdr-col_pos OF STRUCTURE <lfs_d_row> TO FIELD-SYMBOL(<lfs_val>).
-*        ASSIGN COMPONENT ls_hdr-tech_name OF STRUCTURE <lfs_d_row> TO FIELD-SYMBOL(<lfs_val>).
         IF sy-subrc = 0.
 
           ls_vert = VALUE gty_vertical_data(
                             fieldname = ls_hdr-tech_name
                             descr     = ls_hdr-descr
                             value     = COND #( WHEN <lfs_val> IS INITIAL THEN space ELSE <lfs_val> )
-                            row_pos   = sy-tabix ).
+                            row_index = sy-tabix ).
 
           " Fixed list from header (semicolon-separated) -> ALV dropdown handle.
           IF ls_hdr-val_list IS NOT INITIAL.
@@ -572,64 +743,26 @@ FORM display_detail_first_time USING pv_has_error TYPE abap_bool.
   ls_layo_dt-grid_title = |{ TEXT-033 }|.
 
   lt_fcat_dt = VALUE #(
-    ( fieldname = 'DESCR'     coltext = |{ TEXT-034 }| col_pos = 1 outputlen = 30 )
-    ( fieldname = 'FIELDNAME' coltext = |{ TEXT-035 }| col_pos = 2 outputlen = 15 no_out = abap_on )
-    ( fieldname = 'VALUE'     coltext = |{ TEXT-036 }| col_pos = 3 outputlen = 30 intlen = 100
+    ( fieldname = 'DESCR'     coltext = |{ TEXT-034 }| col_pos = 1 outputlen = 40 )
+*    ( fieldname = 'FIELDNAME' coltext = |{ TEXT-035 }| col_pos = 2 outputlen = 15 no_out = abap_on )
+    ( fieldname = 'VALUE'     coltext = |{ TEXT-036 }| col_pos = 2 outputlen = 30
       edit      = gv_edit_mode drdn_alias = abap_on drdn_field = 'DD_HNDL' )
-    ( fieldname = 'DD_HNDL'   coltext = ''             col_pos = 4 outputlen = 30 no_out = abap_on tech = abap_on )
-    ( fieldname = 'F4_ICON'   coltext = ''             col_pos = 5 outputlen = 3
+    ( fieldname = 'DD_HNDL'   coltext = ''             col_pos = 3 outputlen = 30 no_out = abap_on tech = abap_on )
+    ( fieldname = 'F4_ICON'   coltext = ''             col_pos = 4 outputlen = 3
       hotspot   = abap_on icon = abap_on just = 'C' )
-    ( fieldname = 'ERROR_MSG' coltext = |{ TEXT-037 }| col_pos = 6 outputlen = 40
+    ( fieldname = 'ERROR_MSG' coltext = |{ TEXT-037 }| col_pos = 5 outputlen = 100
       no_out    = COND #( WHEN pv_has_error = abap_on THEN space ELSE abap_on )
       hotspot   = COND #( WHEN pv_has_error = abap_on THEN abap_on ELSE space ) )
   ).
 
-  lt_exclude = VALUE #(
- ( cl_gui_alv_grid=>mc_fc_check )
- ( cl_gui_alv_grid=>mc_fc_refresh )
- ( cl_gui_alv_grid=>mc_fc_loc_cut )
- ( cl_gui_alv_grid=>mc_fc_loc_paste )
- ( cl_gui_alv_grid=>mc_fc_loc_paste_new_row )
- ( cl_gui_alv_grid=>mc_fc_loc_undo )
- ( cl_gui_alv_grid=>mc_fc_loc_paste )
- ( cl_gui_alv_grid=>mc_fc_loc_append_row )
- ( cl_gui_alv_grid=>mc_fc_loc_insert_row )
- ( cl_gui_alv_grid=>mc_fc_loc_delete_row )
- ( cl_gui_alv_grid=>mc_fc_loc_copy_row )
- ( cl_gui_alv_grid=>mc_fc_print )
- ( cl_gui_alv_grid=>mc_fc_print_prev )
- ( cl_gui_alv_grid=>mc_fc_view_grid )
- ( cl_gui_alv_grid=>mc_fc_view_excel )
- ( cl_gui_alv_grid=>mc_fc_view_crystal )
- ( cl_gui_alv_grid=>mc_fc_word_processor )
- ( cl_gui_alv_grid=>mc_fc_pc_file )
- ( cl_gui_alv_grid=>mc_fc_send )
- ( cl_gui_alv_grid=>mc_fc_to_office )
- ( cl_gui_alv_grid=>mc_fc_call_abc )
- ( cl_gui_alv_grid=>mc_fc_expcrdesig )
- ( cl_gui_alv_grid=>mc_fc_expcrtempl )
- ( cl_gui_alv_grid=>mc_fc_html )
- ( cl_gui_alv_grid=>mc_fc_url_copy_to_clipboard )
- ( cl_gui_alv_grid=>mc_fc_variant_admin )
- ( cl_gui_alv_grid=>mc_fc_graph )
- ( cl_gui_alv_grid=>mc_fc_info )
- ( cl_gui_alv_grid=>mc_fc_loc_copy )
- ( cl_gui_alv_grid=>mc_fc_detail )
- ( cl_gui_alv_grid=>mc_mb_sum )
- ( cl_gui_alv_grid=>mc_fc_subtot )
- ( cl_gui_alv_grid=>mc_fc_views )
- ( cl_gui_alv_grid=>mc_fc_sort )
- ( cl_gui_alv_grid=>mc_mb_export )
- ( cl_gui_alv_grid=>mc_mb_variant )
- ( cl_gui_alv_grid=>mc_mb_view )
- ).
+  PERFORM get_alv_exclude_tb_func CHANGING lt_exclude.
 
   go_grid_detail->set_drop_down_table( it_drop_down = gt_drop_detail ).
   go_grid_detail->set_table_for_first_display(
-    EXPORTING is_layout       = ls_layo_dt
-              it_toolbar_excluding   = lt_exclude
-    CHANGING  it_outtab       = gt_vertical_data
-              it_fieldcatalog = lt_fcat_dt ).
+    EXPORTING is_layout             = ls_layo_dt
+              it_toolbar_excluding  = lt_exclude
+    CHANGING  it_outtab             = gt_vertical_data
+              it_fieldcatalog       = lt_fcat_dt ).
 
 ENDFORM.
 
@@ -715,118 +848,9 @@ FORM change_page_logic.
 
   cl_gui_cfw=>flush( ).
 
-  PERFORM refresh_detail_alvs.
+  PERFORM prepare_detail_alvs.
 
 ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form BUILD_MASTER_FCAT
-*& Master ALV columns: keys, LEDs, dynamic data cols, ERR_COUNT; toolbar
-*& excludes insert/delete row.
-*&---------------------------------------------------------------------*
-FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
-                                ps_layo    TYPE lvc_s_layo
-                                pt_exclude TYPE ui_functions.
-
-  DATA: lt_comp      TYPE cl_abap_structdescr=>component_table,
-        ls_comp      LIKE LINE OF lt_comp,
-        lv_base_name TYPE string,
-        lv_new_name  TYPE string.
-
-  ps_layo-cwidth_opt = abap_on.
-  ps_layo-zebra      = abap_on.
-  ps_layo-sel_mode   = 'A'.
-  ps_layo-grid_title = TEXT-026.
-
-  pt_fcat = VALUE #(
-    ( fieldname = 'DATA_ROW'
-      coltext   = TEXT-027
-      col_pos   = 1
-*      hotspot   = abap_on
-*      key       = abap_on
-      just      = 'C' )
-
-    ( fieldname = 'STATUS_ICON'
-      coltext   = TEXT-028
-      col_pos   = 2
-      icon      = abap_on
-      just      = 'C'
-      outputlen = 4
-      scrtext_s = TEXT-028
-      scrtext_m = TEXT-028
-      scrtext_l = TEXT-028 )
-  ).
-
-  DATA(lv_pos) = 2.
-
-  LOOP AT gt_header_list INTO DATA(ls_hdr).
-
-    lv_base_name = ls_hdr-tech_name.
-
-    PERFORM handle_duplicated_tech_name USING lv_base_name
-                                   lt_comp
-                         CHANGING  lv_new_name.
-    ls_comp-name = lv_new_name.
-    APPEND ls_comp TO lt_comp.
-
-    lv_pos += 1.
-    APPEND VALUE #(
-      fieldname = lv_new_name
-      coltext   = ls_hdr-descr
-      col_pos   = lv_pos
-      key       = ls_hdr-is_key
-    ) TO pt_fcat.
-  ENDLOOP.
-
-  APPEND VALUE #(
-    fieldname = 'ERR_COUNT'
-    coltext   = TEXT-029
-    col_pos   = lv_pos + 1
-    just      = 'C'
-  ) TO pt_fcat.
-
-  pt_exclude = VALUE #(
-    ( cl_gui_alv_grid=>mc_fc_check )
-    ( cl_gui_alv_grid=>mc_fc_refresh )
-    ( cl_gui_alv_grid=>mc_fc_loc_cut )
-    ( cl_gui_alv_grid=>mc_fc_loc_paste )
-    ( cl_gui_alv_grid=>mc_fc_loc_paste_new_row )
-    ( cl_gui_alv_grid=>mc_fc_loc_undo )
-    ( cl_gui_alv_grid=>mc_fc_loc_paste )
-    ( cl_gui_alv_grid=>mc_fc_loc_append_row )
-    ( cl_gui_alv_grid=>mc_fc_loc_insert_row )
-    ( cl_gui_alv_grid=>mc_fc_loc_delete_row )
-    ( cl_gui_alv_grid=>mc_fc_loc_copy_row )
-    ( cl_gui_alv_grid=>mc_fc_print )
-    ( cl_gui_alv_grid=>mc_fc_print_prev )
-    ( cl_gui_alv_grid=>mc_fc_view_grid )
-    ( cl_gui_alv_grid=>mc_fc_view_excel )
-    ( cl_gui_alv_grid=>mc_fc_view_crystal )
-    ( cl_gui_alv_grid=>mc_fc_word_processor )
-    ( cl_gui_alv_grid=>mc_fc_pc_file )
-    ( cl_gui_alv_grid=>mc_fc_send )
-    ( cl_gui_alv_grid=>mc_fc_to_office )
-    ( cl_gui_alv_grid=>mc_fc_call_abc )
-    ( cl_gui_alv_grid=>mc_fc_expcrdesig )
-    ( cl_gui_alv_grid=>mc_fc_expcrtempl )
-    ( cl_gui_alv_grid=>mc_fc_html )
-    ( cl_gui_alv_grid=>mc_fc_url_copy_to_clipboard )
-    ( cl_gui_alv_grid=>mc_fc_variant_admin )
-    ( cl_gui_alv_grid=>mc_fc_graph )
-    ( cl_gui_alv_grid=>mc_fc_info )
-    ( cl_gui_alv_grid=>mc_fc_loc_copy )
-    ( cl_gui_alv_grid=>mc_fc_detail )
-    ( cl_gui_alv_grid=>mc_mb_sum )
-    ( cl_gui_alv_grid=>mc_fc_subtot )
-    ( cl_gui_alv_grid=>mc_fc_views )
-    ( cl_gui_alv_grid=>mc_fc_sort )
-    ( cl_gui_alv_grid=>mc_mb_export )
-    ( cl_gui_alv_grid=>mc_mb_variant )
-    ( cl_gui_alv_grid=>mc_mb_view )
-    ).
-
-ENDFORM.
-
 
 *&---------------------------------------------------------------------*
 *& Section: Cleanup
@@ -857,77 +881,6 @@ FORM free_alv_objects.
     FREE gv_dref_master.
   ENDIF.
   UNASSIGN <gfs_master>.
-
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form BUILD_MASTER_DATA
-*& Single pass over <gfs_data>: MOVE-CORRESPONDING into master line shape,
-*& then fill DATA_ROW, ERR_COUNT, STATUS_ICON (red/yellow/green).
-*&---------------------------------------------------------------------*
-FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
-
-  DATA: lv_dref_line TYPE REF TO data.
-
-  CREATE DATA lv_dref_line TYPE HANDLE lo_struct.
-  FIELD-SYMBOLS: <lfs_m_row> TYPE any,
-                 <lfs_val>   TYPE any,
-                 <lfs_stat>  TYPE any.
-  ASSIGN lv_dref_line->* TO <lfs_m_row>.
-
-  " One loop over data rows only (O(N)); no per-column inner loops here.
-
-  IF <gfs_data> IS NOT ASSIGNED.
-    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-    RETURN.
-  ENDIF.
-
-  LOOP AT <gfs_data> ASSIGNING FIELD-SYMBOL(<lfs_d_row>).
-    UNASSIGN <lfs_stat>.
-    CLEAR <lfs_m_row>.
-    DATA(lv_real_row) = sy-tabix + gc_data_start - 1.
-
-    " Fast copy: identically named components from data row to master row;
-    " custom columns (DATA_ROW, STATUS_ICON, ERR_COUNT) set explicitly below.
-*    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>.
-    <lfs_m_row> = CORRESPONDING #( <lfs_d_row> ).
-*    <lfs_d_row> = <lfs_m_row>.
-
-    " Custom columns (once per output row).
-    ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
-    <lfs_val> = lv_real_row.
-
-    " Error count for this logical spreadsheet row.
-    DATA(lv_err_count) = 0.
-    LOOP AT gt_error_log TRANSPORTING NO FIELDS WHERE row_index = lv_real_row.
-      lv_err_count += 1.
-    ENDLOOP.
-
-    ASSIGN COMPONENT 'ERR_COUNT' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
-    <lfs_val> = lv_err_count.
-
-    " Traffic light: errors / dirty / OK.
-    ASSIGN COMPONENT 'STATUS_ICON' OF STRUCTURE <lfs_m_row> TO <lfs_stat>.
-    IF <lfs_stat> IS ASSIGNED.
-*      IF lv_err_count > 0.
-*        <lfs_stat> = icon_led_red.
-*      ELSEIF line_exists( gt_row_dirty[ page_no = gv_current_page excel_row = lv_real_row ] ).
-*        <lfs_stat> = icon_led_yellow.
-*      ELSE.
-*        <lfs_stat> = icon_led_green.
-*      ENDIF.
-
-      IF line_exists( gt_row_dirty[ page_no = gv_current_page data_row = lv_real_row ] ).
-        <lfs_stat> = icon_led_yellow.
-      ELSEIF lv_err_count > 0.
-        <lfs_stat> = icon_led_red.
-      ELSE.
-        <lfs_stat> = icon_led_green.
-      ENDIF.
-    ENDIF.
-
-    APPEND <lfs_m_row> TO <gfs_master>.
-  ENDLOOP.
 
 ENDFORM.
 
@@ -978,4 +931,52 @@ FORM show_detail_alv_error_popup USING pv_error_msg TYPE string.
   IF sy-subrc <> 0.                                       "#EC CI_SUBRC
   ENDIF.
 
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form get_alv_exclude_tb_func
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      <-- PT_EXCLUDE
+*&---------------------------------------------------------------------*
+FORM get_alv_exclude_tb_func  CHANGING pt_exclude TYPE ui_functions.
+  pt_exclude = VALUE #(
+  ( cl_gui_alv_grid=>mc_fc_check )
+  ( cl_gui_alv_grid=>mc_fc_refresh )
+  ( cl_gui_alv_grid=>mc_fc_loc_cut )
+  ( cl_gui_alv_grid=>mc_fc_loc_paste )
+  ( cl_gui_alv_grid=>mc_fc_loc_paste_new_row )
+  ( cl_gui_alv_grid=>mc_fc_loc_undo )
+  ( cl_gui_alv_grid=>mc_fc_loc_paste )
+  ( cl_gui_alv_grid=>mc_fc_loc_append_row )
+  ( cl_gui_alv_grid=>mc_fc_loc_insert_row )
+  ( cl_gui_alv_grid=>mc_fc_loc_delete_row )
+  ( cl_gui_alv_grid=>mc_fc_loc_copy_row )
+  ( cl_gui_alv_grid=>mc_fc_print )
+  ( cl_gui_alv_grid=>mc_fc_print_prev )
+  ( cl_gui_alv_grid=>mc_fc_view_grid )
+  ( cl_gui_alv_grid=>mc_fc_view_excel )
+  ( cl_gui_alv_grid=>mc_fc_view_crystal )
+  ( cl_gui_alv_grid=>mc_fc_word_processor )
+  ( cl_gui_alv_grid=>mc_fc_pc_file )
+  ( cl_gui_alv_grid=>mc_fc_send )
+  ( cl_gui_alv_grid=>mc_fc_to_office )
+  ( cl_gui_alv_grid=>mc_fc_call_abc )
+  ( cl_gui_alv_grid=>mc_fc_expcrdesig )
+  ( cl_gui_alv_grid=>mc_fc_expcrtempl )
+  ( cl_gui_alv_grid=>mc_fc_html )
+  ( cl_gui_alv_grid=>mc_fc_url_copy_to_clipboard )
+  ( cl_gui_alv_grid=>mc_fc_variant_admin )
+  ( cl_gui_alv_grid=>mc_fc_graph )
+  ( cl_gui_alv_grid=>mc_fc_info )
+  ( cl_gui_alv_grid=>mc_fc_loc_copy )
+  ( cl_gui_alv_grid=>mc_fc_detail )
+  ( cl_gui_alv_grid=>mc_mb_sum )
+  ( cl_gui_alv_grid=>mc_fc_subtot )
+  ( cl_gui_alv_grid=>mc_fc_views )
+  ( cl_gui_alv_grid=>mc_fc_sort )
+  ( cl_gui_alv_grid=>mc_mb_export )
+  ( cl_gui_alv_grid=>mc_mb_variant )
+  ( cl_gui_alv_grid=>mc_mb_view )
+  ).
 ENDFORM.

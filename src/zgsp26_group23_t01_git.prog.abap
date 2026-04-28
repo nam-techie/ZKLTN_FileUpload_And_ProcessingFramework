@@ -121,7 +121,7 @@ DATA: gv_okcode             TYPE sy-ucomm,
 
 "  Row structure for the right-hand vertical (detail) ALV — includes ERROR_MSG
 TYPES: BEGIN OF gty_vertical_data,
-         row_pos   TYPE i,
+         row_index TYPE i,
          fieldname TYPE string,
          descr     TYPE string,
          value     TYPE string,

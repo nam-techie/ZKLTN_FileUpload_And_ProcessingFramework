@@ -118,7 +118,7 @@ FORM process_view_raw.
 
     " Refresh full Master-Detail stack after reload from DB.
     PERFORM prepare_master_alv_data.
-    PERFORM refresh_detail_alvs.
+    PERFORM prepare_detail_alvs.
 
     IF go_grid_master IS BOUND. go_grid_master->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ). ENDIF.
     IF go_grid_detail IS BOUND. go_grid_detail->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ). ENDIF.
@@ -178,8 +178,6 @@ FORM process_save.
       PERFORM parse_string_to_raw USING    gt_preview_lines
                                            ls_header-file_type
                                   CHANGING lt_struct_errors.
-
-      PERFORM show_popup_struct_err USING lt_struct_errors.
 
       go_text_edit->set_textmodified_status(
          status = 0
@@ -293,8 +291,6 @@ FORM process_display.
                                              ls_header-file_type
                                     CHANGING lt_struct_errors.
 
-        PERFORM show_popup_struct_err USING lt_struct_errors.
-
         go_text_edit->set_textmodified_status(
            status = 0
            ).
@@ -315,7 +311,7 @@ FORM process_display.
         PERFORM reload_data_from_db USING gv_current_log_id.
 
         PERFORM prepare_master_alv_data.
-        PERFORM refresh_detail_alvs.
+        PERFORM prepare_detail_alvs.
 
         gv_edit_mode = abap_false.
         PERFORM switch_alv_mode.
@@ -368,7 +364,7 @@ ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Module  USER_COMMAND_0200  INPUT
-*& BACK/EXIT -> PROCESS_EXIT_HISTORY_SCREEN; download -> PROCESS_DOWNLOAD_BULK.
+*& BACK/EXIT -> PROCESS_EXIT_HISTORY_SCREEN; download -> PROCESS_DOWNLOAD_batch.
 *&---------------------------------------------------------------------*
 MODULE user_command_0200 INPUT.
 
@@ -378,10 +374,10 @@ MODULE user_command_0200 INPUT.
       PERFORM process_exit_history_screen USING gv_okcode.
 
     WHEN gc_ucomm_down.
-      PERFORM process_download_bulk.
+      PERFORM process_download_batch.
 
     WHEN gc_ucomm_del.
-      PERFORM process_delete_bulk.
+      PERFORM process_delete_batch.
   ENDCASE.
 
   CLEAR gv_okcode.
