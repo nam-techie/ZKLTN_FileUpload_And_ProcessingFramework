@@ -59,11 +59,15 @@ CLASS lcl_alv_events IMPLEMENTATION.
 
   METHOD on_master_double_click.
     FIELD-SYMBOLS: <lfs_master_row> TYPE any,
-                   <lfs_data_row>  TYPE any.
+                   <lfs_data_row>   TYPE any.
+
+    IF <gfs_master> IS NOT ASSIGNED.
+      MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      RETURN.
+    ENDIF.
 
     " Map grid row index to master row and read DATA_ROW (logical sheet row).
     READ TABLE <gfs_master> ASSIGNING <lfs_master_row> INDEX e_row-index.
-*    READ TABLE <gfs_data> ASSIGNING <lfs_master_row> INDEX e_row-index.
     IF sy-subrc = 0.
       ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_master_row> TO <lfs_data_row>.
       IF sy-subrc = 0.
@@ -83,13 +87,8 @@ CLASS lcl_alv_events IMPLEMENTATION.
     READ TABLE gt_history_list INTO DATA(ls_hist) INDEX e_row-index.
     IF sy-subrc = 0.
       IF ls_hist-category = gc_stored_file.
-          MESSAGE s028(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
-          RETURN.
-*        " Only CSV/TXT stored files are supported for this action.
-*        IF ls_hist-file_type <> gc_ftype_csv AND ls_hist-file_type <> gc_ftype_txt.
-*          MESSAGE s028(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
-*          RETURN.
-*        ENDIF.
+        MESSAGE s028(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
+        RETURN.
       ENDIF.
       gv_current_log_id = ls_hist-log_id.
       PERFORM process_history_selected USING ls_hist-log_id.

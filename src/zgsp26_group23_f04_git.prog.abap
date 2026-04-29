@@ -20,50 +20,7 @@
 *&---------------------------------------------------------------------*
 FORM view_history_screen.
 
-  " Ranges for OPEN SQL (inline DATA).
-  DATA: lr_date TYPE RANGE OF datum,
-        lr_prog TYPE RANGE OF zlog_header-file_type.
-
-  " Optional filter: upload date = P_DATE.
-  IF p_date IS NOT INITIAL.
-    lr_date = VALUE #( ( sign = 'I' option = 'EQ' low = p_date ) ).
-  ENDIF.
-
-  " Optional filter: file type (map XLSX selection to persisted category code).
-  IF p_ftype2 <> '*'.
-    DATA(lv_prog_val) = COND zlog_header-file_type(
-                          WHEN p_ftype2 = gc_ftype_xlsx THEN gc_ftype_excel
-                          WHEN p_ftype2 = gc_ftype_csv  THEN gc_ftype_csv
-                          WHEN p_ftype2 = gc_ftype_txt  THEN gc_ftype_txt
-                          ELSE p_ftype2 ).
-
-    lr_prog = VALUE #( ( sign = 'I' option = 'EQ' low = lv_prog_val ) ).
-  ENDIF.
-
-  " Read header rows for this user and filters.
-  SELECT mandt,
-         log_id,
-         file_type,
-         file_name,
-         total_rec,
-         succ_rec,
-         total_sheet,
-         err_rec,
-         category,
-         erdat,
-         erzet,
-         ernam,
-         aedat,
-         aezet,
-         aenam,
-         is_deleted
-      FROM zlog_header
-      WHERE ernam     =  @sy-uname
-        AND erdat     IN @lr_date
-        AND file_type IN @lr_prog
-        AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
-      ORDER BY erdat DESCENDING, erzet DESCENDING
-      INTO CORRESPONDING FIELDS OF TABLE @gt_history_list.
+  PERFORM load_history_data.
 
   " No rows -> warning and stay on selection screen.
   IF sy-subrc <> 0 OR gt_history_list IS INITIAL.
@@ -82,54 +39,21 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM refresh_history_alv.
 
-  DATA: lr_date TYPE RANGE OF datum,
-        lr_prog TYPE RANGE OF zlog_header-file_type.
-
-  IF p_date IS NOT INITIAL.
-    lr_date = VALUE #( ( sign = 'I' option = 'EQ' low = p_date ) ).
-  ENDIF.
-
-  IF p_ftype2 <> '*'.
-    DATA(lv_prog_val) = COND zlog_header-file_type( WHEN p_ftype2 = gc_ftype_xlsx THEN gc_ftype_excel
-                                                    WHEN p_ftype2 = gc_ftype_csv  THEN gc_ftype_csv
-                                                    WHEN p_ftype2 = gc_ftype_txt  THEN gc_ftype_txt ELSE p_ftype2 ).
-    lr_prog = VALUE #( ( sign = 'I' option = 'EQ' low = lv_prog_val ) ).
-  ENDIF.
-
-  SELECT mandt,
-         log_id,
-         file_type,
-         file_name,
-         total_rec,
-         succ_rec,
-         total_sheet,
-         err_rec,
-         category,
-         erdat,
-         erzet,
-         ernam,
-         aedat,
-         aezet,
-         aenam,
-         is_deleted
-     FROM zlog_header
-     WHERE ernam     =  @sy-uname
-       AND erdat     IN @lr_date
-       AND file_type IN @lr_prog
-       AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
-     ORDER BY erdat DESCENDING, erzet DESCENDING
-     INTO CORRESPONDING FIELDS OF TABLE @gt_history_list.
+  PERFORM load_history_data.
 
   " Refresh existing history ALV (after returning from drill-down screen).
   IF go_grid_hist IS BOUND.
-    DATA: ls_layout TYPE lvc_s_layo.
-    go_grid_hist->get_frontend_layout( IMPORTING es_layout = ls_layout ).
-    DATA(lv_title_date) = COND string(
-      WHEN p_date IS INITIAL THEN TEXT-004
-      ELSE |{ TEXT-005 } { p_date }|
-    ).
+    DATA: ls_layout        TYPE lvc_s_layo,
+          lv_grid_title    TYPE string,
+          lv_history_count TYPE i.
 
-    ls_layout-grid_title = |{ TEXT-006 } ({ lv_title_date }) - { TEXT-007 } { lines( gt_history_list ) }|.
+    go_grid_hist->get_frontend_layout( IMPORTING es_layout = ls_layout ).
+    lv_history_count = lines( gt_history_list ).
+    PERFORM get_history_grid_title USING    p_date
+                                            lv_history_count
+                                   CHANGING lv_grid_title.
+
+    ls_layout-grid_title = lv_grid_title.
     go_grid_hist->set_frontend_layout( ls_layout ).
 
     " Refresh grid (keep scroll position and current row selection).
@@ -145,9 +69,11 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM build_history_alv_grid.
 
-  DATA: ls_layout  TYPE lvc_s_layo,
-        lt_fcat    TYPE lvc_t_fcat,
-        lt_exclude TYPE ui_functions.
+  DATA: ls_layout        TYPE lvc_s_layo,
+        lt_fcat          TYPE lvc_t_fcat,
+        lt_exclude       TYPE ui_functions,
+        lv_grid_title    TYPE string,
+        lv_history_count TYPE i.
 
   " Initialize container + grid only once per session.
   IF go_cont_hist IS NOT BOUND.
@@ -165,12 +91,11 @@ FORM build_history_alv_grid.
     ls_layout-cwidth_opt = abap_on.
     ls_layout-sel_mode   = 'D'.
 
-    DATA(lv_title_date) = COND string(
-      WHEN p_date IS INITIAL THEN TEXT-004
-      ELSE |{ TEXT-005 } { p_date }|
-    ).
-
-    ls_layout-grid_title = |{ TEXT-006 } ({ lv_title_date }) - { TEXT-007 } { lines( gt_history_list ) }|.
+    lv_history_count = lines( gt_history_list ).
+    PERFORM get_history_grid_title USING    p_date
+                                            lv_history_count
+                                   CHANGING lv_grid_title.
+    ls_layout-grid_title = lv_grid_title.
 
     " Field catalog for history columns.
     lt_fcat = VALUE #(
@@ -224,96 +149,38 @@ ENDFORM.
 FORM process_download_batch.
 
   DATA: lt_rows  TYPE lvc_t_row,
+        ls_row   TYPE lvc_s_row,
+        ls_hist  TYPE zlog_header,
         lv_count TYPE i.
 
-  " Grab the rows that the user highlighted in the ALV grid
   IF go_grid_hist IS BOUND.
     go_grid_hist->get_selected_rows( IMPORTING et_index_rows = lt_rows ).
   ENDIF.
 
   lv_count = lines( lt_rows ).
 
-  " Make sure they actually selected something
   IF lv_count = 0.
     MESSAGE s029(zmsg_gr23) DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
-  " Route the request based on how many rows were selected
   IF lv_count = 1.
-    PERFORM download_single_file USING lt_rows.
+
+    READ TABLE lt_rows INTO ls_row INDEX 1.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+
+    READ TABLE gt_history_list INTO ls_hist INDEX ls_row-index.
+    IF sy-subrc <> 0.
+      MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      RETURN.
+    ENDIF.
+
+    PERFORM download_log_file USING ls_hist.
+
   ELSE.
     PERFORM download_multiple_files_zip USING lt_rows lv_count.
-  ENDIF.
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Form DOWNLOAD_SINGLE_FILE
-*& Handles the extraction and download of exactly one selected file
-*&---------------------------------------------------------------------*
-FORM download_single_file USING pt_rows TYPE lvc_t_row.
-
-  DATA: ls_row      TYPE lvc_s_row,
-        lv_path     TYPE string,
-        lv_fullpath TYPE string,
-        lv_filename TYPE string,
-        lv_action   TYPE i.
-
-  " Get the index of the single selected row
-  READ TABLE pt_rows INTO ls_row INDEX 1.
-  IF sy-subrc <> 0. RETURN. ENDIF.
-
-  " Fetch the corresponding history record
-  READ TABLE gt_history_list INTO DATA(ls_hist) INDEX ls_row-index.
-  IF sy-subrc <> 0. RETURN. ENDIF.
-
-  DATA(lv_ext) = to_lower( ls_hist-file_type ).
-
-  " Ask the user where they want to save the file
-  cl_gui_frontend_services=>file_save_dialog(
-    EXPORTING
-      window_title      = |{ TEXT-023 }|
-      default_extension = lv_ext
-      default_file_name = |{ sy-datum }_{ ls_hist-file_name }|
-      file_filter       = |{ TEXT-025 } (*.{ lv_ext })\|*.{ lv_ext }|
-    CHANGING
-      filename          = lv_filename
-      path              = lv_path
-      fullpath          = lv_fullpath
-      user_action       = lv_action
-      EXCEPTIONS OTHERS = 1 ).
-
-  " Bail out if the user cancelled the dialog
-  IF lv_action <> cl_gui_frontend_services=>action_ok OR sy-subrc <> 0.
-    MESSAGE s048(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-    RETURN.
-  ENDIF.
-  " Fetch the raw base64 string from the database
-  SELECT SINGLE raw_data
-    FROM zlog_item
-    INTO @DATA(lv_base64)
-    WHERE log_id  = @ls_hist-log_id
-      AND item_no = 0.
-
-  IF lv_base64 IS INITIAL. RETURN. ENDIF.
-
-  " Convert base64 string -> xstring -> binary table
-  DATA(lv_xstring) = cl_http_utility=>if_http_utility~decode_x_base64( lv_base64 ).
-  DATA: lt_binary TYPE solix_tab.
-  cl_bcs_convert=>xstring_to_solix( EXPORTING iv_xstring = lv_xstring RECEIVING et_solix = lt_binary ).
-
-  " Trigger the local file download
-  cl_gui_frontend_services=>gui_download(
-    EXPORTING
-      bin_filesize = xstrlen( lv_xstring )
-      filename     = lv_fullpath
-      filetype     = 'BIN'
-    CHANGING
-      data_tab     = lt_binary
-    EXCEPTIONS OTHERS = 1 ).
-
-  IF sy-subrc = 0.
-    MESSAGE s030(zmsg_gr23).
   ENDIF.
 
 ENDFORM.
@@ -334,7 +201,11 @@ FORM download_multiple_files_zip USING pt_rows  TYPE lvc_t_row
 
   " Confirm with the user before proceeding
   DATA(lv_confirm_txt) = |{ TEXT-018 } { pv_count } { TEXT-022 }|.
-  PERFORM show_popup_confirm USING TEXT-019 lv_confirm_txt TEXT-020 TEXT-021 abap_off CHANGING lv_ans.
+
+  PERFORM show_popup_confirm USING  TEXT-019 lv_confirm_txt
+                                    TEXT-020
+                                    TEXT-021 abap_off
+                                    CHANGING lv_ans.
 
   IF lv_ans <> '1'. RETURN. ENDIF.
 
@@ -508,71 +379,42 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM download_file USING pv_log_id TYPE zlog_header-log_id.
 
-  DATA: lv_path     TYPE string,
-        lv_fullpath TYPE string,
-        lv_filename TYPE string,
-        lv_action   TYPE i.
+*  SORT gt_history_list BY log_id.
+*
+*  READ TABLE gt_history_list INTO DATA(ls_hist)
+*    WITH KEY log_id = pv_log_id
+*    BINARY SEARCH.
 
+  DATA ls_hist TYPE zlog_header.
 
-  " Fetch the corresponding history record
-  SORT gt_history_list BY log_id.
-  READ TABLE gt_history_list INTO DATA(ls_hist) WITH KEY log_id = pv_log_id BINARY SEARCH.
-  IF sy-subrc <> 0. RETURN. ENDIF.
+  SELECT SINGLE
+         mandt,
+         log_id,
+         file_type,
+         file_name,
+         total_rec,
+         succ_rec,
+         total_sheet,
+         err_rec,
+         category,
+         erdat,
+         erzet,
+         ernam,
+         aedat,
+         aezet,
+         aenam,
+         is_deleted
+    FROM zlog_header
+    WHERE log_id = @pv_log_id
+      AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
+    INTO CORRESPONDING FIELDS OF @ls_hist.
 
-  DATA(lv_ext) = to_lower( ls_hist-file_type ).
-
-  " Ask the user where they want to save the file
-  cl_gui_frontend_services=>file_save_dialog(
-    EXPORTING
-      window_title      = |{ TEXT-023 }|
-      default_extension = lv_ext
-      default_file_name = |{ sy-datum }_{ ls_hist-file_name }|
-      file_filter       = |{ TEXT-025 } (*.{ lv_ext })\|*.{ lv_ext }|
-    CHANGING
-      filename          = lv_filename
-      path              = lv_path
-      fullpath          = lv_fullpath
-      user_action       = lv_action
-      EXCEPTIONS OTHERS = 1 ).
-
-  " Bail out if the user cancelled the dialog
-  IF lv_action <> cl_gui_frontend_services=>action_ok OR sy-subrc <> 0.
-    MESSAGE s048(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-    RETURN.
-  ENDIF.
-
-  " Fetch the raw base64 string from the database
-  SELECT SINGLE raw_data
-    FROM zlog_item
-    INTO @DATA(lv_base64)
-    WHERE log_id  = @ls_hist-log_id
-      AND item_no = 0.
-
-  IF lv_base64 IS INITIAL.
+  IF sy-subrc <> 0.
     MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
-  " Convert base64 string -> xstring -> binary table
-  DATA(lv_xstring) = cl_http_utility=>if_http_utility~decode_x_base64( lv_base64 ).
-  DATA: lt_binary TYPE solix_tab.
-  cl_bcs_convert=>xstring_to_solix( EXPORTING iv_xstring = lv_xstring RECEIVING et_solix = lt_binary ).
-
-  " Trigger the local file download
-  cl_gui_frontend_services=>gui_download(
-    EXPORTING
-      bin_filesize = xstrlen( lv_xstring )
-      filename     = lv_fullpath
-      filetype     = 'BIN'
-    CHANGING
-      data_tab     = lt_binary
-    EXCEPTIONS OTHERS = 1 ).
-
-  IF sy-subrc = 0.
-    MESSAGE s050(zmsg_gr23) WITH lv_filename.
-  ELSE.
-    MESSAGE s051(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-  ENDIF.
+  PERFORM download_log_file USING ls_hist.
 
 ENDFORM.
 
@@ -697,4 +539,145 @@ FORM process_delete_batch.
 
 
 *  MESSAGE s066(zmsg_gr23).
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form load_history_data
+*&---------------------------------------------------------------------*
+FORM load_history_data.
+
+  DATA: lt_r_date TYPE RANGE OF datum,
+        lt_r_prog TYPE RANGE OF zlog_header-file_type.
+
+  CLEAR gt_history_list.
+
+  IF p_date IS NOT INITIAL.
+    lt_r_date = VALUE #( ( sign = 'I' option = 'EQ' low = p_date ) ).
+  ENDIF.
+
+  IF p_ftype2 <> '*'.
+    DATA(lv_prog_val) = COND zlog_header-file_type(
+                          WHEN p_ftype2 = gc_ftype_xlsx THEN gc_ftype_excel
+                          WHEN p_ftype2 = gc_ftype_csv  THEN gc_ftype_csv
+                          WHEN p_ftype2 = gc_ftype_txt  THEN gc_ftype_txt
+                          ELSE p_ftype2 ).
+
+    lt_r_prog = VALUE #( ( sign = 'I' option = 'EQ' low = lv_prog_val ) ).
+  ENDIF.
+
+  SELECT mandt,
+         log_id,
+         file_type,
+         file_name,
+         total_rec,
+         succ_rec,
+         total_sheet,
+         err_rec,
+         category,
+         erdat,
+         erzet,
+         ernam,
+         aedat,
+         aezet,
+         aenam,
+         is_deleted
+    FROM zlog_header
+    WHERE ernam = @sy-uname
+      AND erdat IN @lt_r_date
+      AND file_type IN @lt_r_prog
+      AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
+    ORDER BY erdat DESCENDING, erzet DESCENDING
+    INTO CORRESPONDING FIELDS OF TABLE @gt_history_list.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form get_history_grid_title
+*&---------------------------------------------------------------------*
+FORM get_history_grid_title USING    pv_date  TYPE datum
+                                     pv_count TYPE i
+                            CHANGING pv_title TYPE string.
+
+  DATA(lv_title_date) = COND string(
+    WHEN pv_date IS INITIAL THEN TEXT-004
+    ELSE |{ TEXT-005 } { pv_date }| ).
+
+  pv_title = |{ TEXT-006 } ({ lv_title_date }) - { TEXT-007 } { pv_count }|.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form download_log_file
+*&---------------------------------------------------------------------*
+FORM download_log_file USING ps_hist TYPE zlog_header.
+
+  DATA: lv_path         TYPE string,
+        lv_fullpath     TYPE string,
+        lv_filename     TYPE string,
+        lv_action       TYPE i,
+        lv_dialog_title TYPE string,
+        lv_default_name TYPE string,
+        lv_file_filter  TYPE string,
+        lt_binary       TYPE solix_tab.
+
+  DATA(lv_ext) = to_lower( ps_hist-file_type ).
+
+  lv_dialog_title = TEXT-023.
+  lv_default_name = |{ sy-datum }_{ ps_hist-file_name }|.
+  lv_file_filter  = |{ TEXT-025 } (*.{ lv_ext })\|*.{ lv_ext }|.
+
+  cl_gui_frontend_services=>file_save_dialog(
+    EXPORTING
+      window_title      = lv_dialog_title
+      default_extension = lv_ext
+      default_file_name = lv_default_name
+      file_filter       = lv_file_filter
+    CHANGING
+      filename          = lv_filename
+      path              = lv_path
+      fullpath          = lv_fullpath
+      user_action       = lv_action
+    EXCEPTIONS
+      OTHERS            = 1 ).
+
+  IF lv_action <> cl_gui_frontend_services=>action_ok OR sy-subrc <> 0.
+    MESSAGE s048(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    RETURN.
+  ENDIF.
+
+  SELECT SINGLE raw_data
+    FROM zlog_item
+    INTO @DATA(lv_base64)
+    WHERE log_id  = @ps_hist-log_id
+      AND item_no = 0.
+
+  IF lv_base64 IS INITIAL.
+    MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    RETURN.
+  ENDIF.
+
+  DATA(lv_xstring) = cl_http_utility=>if_http_utility~decode_x_base64( lv_base64 ).
+
+  cl_bcs_convert=>xstring_to_solix(
+    EXPORTING
+      iv_xstring = lv_xstring
+    RECEIVING
+      et_solix   = lt_binary ).
+
+  cl_gui_frontend_services=>gui_download(
+    EXPORTING
+      bin_filesize = xstrlen( lv_xstring )
+      filename     = lv_fullpath
+      filetype     = 'BIN'
+    CHANGING
+      data_tab     = lt_binary
+    EXCEPTIONS
+      OTHERS       = 1 ).
+
+  IF sy-subrc = 0.
+    MESSAGE s050(zmsg_gr23) WITH lv_filename.
+  ELSE.
+    MESSAGE s051(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+  ENDIF.
+
 ENDFORM.

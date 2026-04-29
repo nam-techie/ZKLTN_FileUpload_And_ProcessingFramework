@@ -28,8 +28,9 @@ FORM reverse_map_to_raw.
                  <lfs_value>  TYPE any.
 
   " Resolve master sheet row for the page currently shown on ALV (ASSIGNING = in-place edits).
+  SORT gt_master_sheets BY page_no.
   READ TABLE gt_master_sheets ASSIGNING <lfs_master>
-       WITH KEY page_no = gv_current_page.
+       WITH KEY page_no = gv_current_page BINARY SEARCH.
 
   IF sy-subrc <> 0.
     MESSAGE s039(zmsg_gr23) DISPLAY LIKE gc_displike_err.
@@ -147,7 +148,7 @@ FORM load_page_to_workspace USING pv_page_no TYPE i.
   " Expose sheet data to globals used by ALV / processing
   gv_current_page = ls_sheet-page_no.
   gt_header_list  = ls_sheet-header_list.
-  gt_data_raw    = ls_sheet-data_raw.
+  gt_data_raw     = ls_sheet-data_raw.
   gt_error_log    = ls_sheet-error_log.
   gv_dref_table   = ls_sheet-dref_data.
 

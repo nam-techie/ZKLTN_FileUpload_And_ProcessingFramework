@@ -226,6 +226,7 @@ FORM save_log USING pv_ftype            TYPE char10
       MESSAGE s013(zmsg_gr23) DISPLAY LIKE gc_displike_err.
     ENDIF.
   ENDIF.
+
 ENDFORM.
 
 *&---------------------------------------------------------------------*
@@ -261,10 +262,10 @@ FORM process_save_data.
   ENDIF.
 
   " Block save when nothing is valid to persist.
-  IF lv_lines_ok = 0.
-    MESSAGE i014(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
-    RETURN.
-  ENDIF.
+*  IF lv_lines_ok = 0.
+*    MESSAGE i014(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
+*    RETURN.
+*  ENDIF.
 
   DATA: lv_current_log_id TYPE zlog_header-log_id.
   lv_current_log_id = gv_current_log_id.

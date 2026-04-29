@@ -63,7 +63,9 @@ FORM main_process .
       " Persist upload metadata (type + optional Base64) before dynpro.
       PERFORM save_log USING p_ftype
                              lv_file_base64.
+
       CALL SCREEN 100.
+
     ENDIF.
   ELSEIF p_stor = abap_on.
 
@@ -178,8 +180,8 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
       lv_err_msg = TEXT-133.
       REPLACE '&1' IN lv_err_msg WITH |{ <lfs_header>-col_pos }|.
 
-      PERFORM add_header_error USING lv_err_msg
-                                     pv_sheet_prefix
+      PERFORM add_header_error USING    lv_err_msg
+                                        pv_sheet_prefix
                                CHANGING pt_header_errors.
       CONTINUE.
     ENDIF.
@@ -263,6 +265,9 @@ FORM get_dynamic_components USING    pv_sheet_prefix  TYPE string
 
 ENDFORM.
 
+*&---------------------------------------------------------------------*
+*& Form add_header_error
+*&---------------------------------------------------------------------*
 FORM add_header_error USING    pv_err_msg TYPE string
                                pv_sheet_prefix TYPE string
                       CHANGING pt_header_errors TYPE string_table.
@@ -277,6 +282,17 @@ FORM add_header_error USING    pv_err_msg TYPE string
 
   APPEND |  { pv_err_msg }| TO pt_header_errors.
   gv_error = abap_on.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form build_header_rule_msg
+*&---------------------------------------------------------------------*
+FORM build_header_rule_msg USING    pv_col_pos TYPE i
+                                    pv_msg     TYPE string
+                           CHANGING pv_result  TYPE string.
+
+  pv_result = |{ TEXT-087 } { pv_col_pos }: { pv_msg }|.
 
 ENDFORM.
 
@@ -343,7 +359,7 @@ ENDFORM.
 *& Parses raw data cells and maps them into the dynamic table
 *& (row boundary APPEND; ASSIGN by column index for renamed components).
 *&---------------------------------------------------------------------*
-FORM fill_dynamic_data USING lo_struct TYPE REF TO cl_abap_structdescr.
+FORM fill_dynamic_data USING pv_struct TYPE REF TO cl_abap_structdescr.
 
   DATA: ls_raw       TYPE gty_data_cell,
         lv_cur_row   TYPE i,
@@ -355,7 +371,7 @@ FORM fill_dynamic_data USING lo_struct TYPE REF TO cl_abap_structdescr.
                  <lfs_header> TYPE gty_data_header.
 
   " Create a workspace for a single line
-  CREATE DATA lv_dref_line TYPE HANDLE lo_struct.
+  CREATE DATA lv_dref_line TYPE HANDLE pv_struct.
   ASSIGN lv_dref_line->* TO <lfs_line>.
 
   " Make sure the data is processed sequentially by coordinates
@@ -445,7 +461,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 *& Form lock_data
 *&---------------------------------------------------------------------*
-FORM lock_data CHANGING lv_locked TYPE abap_bool.
+FORM lock_data CHANGING pv_locked TYPE abap_bool.
 
   DATA lv_varkey TYPE rstable-varkey.
 
@@ -466,7 +482,7 @@ FORM lock_data CHANGING lv_locked TYPE abap_bool.
   IF sy-subrc <> 0.
     " Reject edit mode immediately if the lock cannot be obtained.
     MESSAGE s068(zmsg_gr23) WITH sy-uname gv_current_log_id DISPLAY LIKE gc_displike_err.
-    lv_locked = abap_on.
+    pv_locked = abap_on.
   ENDIF.
 
 ENDFORM.

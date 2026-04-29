@@ -181,7 +181,7 @@ ENDFORM.
 *& Purpose: Log ALV protocol error (message 00/398) and revert the cell to
 *&         the previous value on the dynamic table backing the grid.
 *&---------------------------------------------------------------------*
-FORM trigger_alv_error USING    lo_data_changed  TYPE REF TO cl_alv_changed_data_protocol
+FORM trigger_alv_error USING    pv_data_changed  TYPE REF TO cl_alv_changed_data_protocol
                                 pv_old_value     TYPE string
                                 ps_mod_cell      TYPE lvc_s_modi
                                 pv_msgv1         TYPE string
@@ -191,7 +191,7 @@ FORM trigger_alv_error USING    lo_data_changed  TYPE REF TO cl_alv_changed_data
 
 
   " Message class '00' / no '398' must expand to & & & & so MSGV1–4 show on popup.
-  lo_data_changed->add_protocol_entry(
+  pv_data_changed->add_protocol_entry(
     i_msgid     = '00'
     i_msgty     = 'E'
     i_msgno     = '398'
@@ -205,7 +205,7 @@ FORM trigger_alv_error USING    lo_data_changed  TYPE REF TO cl_alv_changed_data
   ).
 
   " Revert ALV cell display to old value.
-  lo_data_changed->modify_cell(
+  pv_data_changed->modify_cell(
     i_row_id    = ps_mod_cell-row_id
     i_fieldname = ps_mod_cell-fieldname
     i_value     = pv_old_value
@@ -345,6 +345,10 @@ FORM hide_raw_show_alv_ui.
 ENDFORM.
 
 *&---------------------------------------------------------------------*
+*& Section: Master ALV — dynamic structure and data
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
 *& Form DISPLAY_MAIN_ALVS
 *& Full master refresh: structure/data, fieldcat, first display, detail.
 *&---------------------------------------------------------------------*
@@ -356,7 +360,9 @@ FORM display_main_alvs.
         ls_layo    TYPE lvc_s_layo,
         lt_exclude TYPE ui_functions.
 
-  PERFORM build_master_fcat CHANGING lt_fcat ls_layo lt_exclude.
+  PERFORM build_master_fcat CHANGING lt_fcat
+                                     ls_layo
+                                     lt_exclude.
 
   go_grid_master->set_table_for_first_display(
     EXPORTING is_layout            = ls_layo
@@ -369,10 +375,6 @@ FORM display_main_alvs.
   PERFORM prepare_detail_alvs.
 
 ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Section: Master ALV — dynamic structure and data
-*&---------------------------------------------------------------------*
 
 *&---------------------------------------------------------------------*
 *& Form PREPARE_MASTER_ALV_DATA
@@ -480,11 +482,11 @@ ENDFORM.
 *& Single pass over <gfs_data>: MOVE-CORRESPONDING into master line shape,
 *& then fill DATA_ROW, ERR_COUNT, STATUS_ICON (red/yellow/green).
 *&---------------------------------------------------------------------*
-FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
+FORM build_master_data USING pv_struct TYPE REF TO cl_abap_structdescr.
 
   DATA: lv_dref_line TYPE REF TO data.
 
-  CREATE DATA lv_dref_line TYPE HANDLE lo_struct.
+  CREATE DATA lv_dref_line TYPE HANDLE pv_struct.
   FIELD-SYMBOLS: <lfs_m_row> TYPE any,
                  <lfs_val>   TYPE any,
                  <lfs_stat>  TYPE any.
@@ -524,13 +526,6 @@ FORM build_master_data USING lo_struct TYPE REF TO cl_abap_structdescr.
     " Traffic light: errors / dirty / OK.
     ASSIGN COMPONENT 'STATUS_ICON' OF STRUCTURE <lfs_m_row> TO <lfs_stat>.
     IF <lfs_stat> IS ASSIGNED.
-*      IF lv_err_count > 0.
-*        <lfs_stat> = icon_led_red.
-*      ELSEIF line_exists( gt_row_dirty[ page_no = gv_current_page excel_row = lv_real_row ] ).
-*        <lfs_stat> = icon_led_yellow.
-*      ELSE.
-*        <lfs_stat> = icon_led_green.
-*      ENDIF.
 
       IF line_exists( gt_row_dirty[ page_no = gv_current_page data_row = lv_real_row ] ).
         <lfs_stat> = icon_led_yellow.
@@ -617,6 +612,10 @@ FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
 ENDFORM.
 
 *&---------------------------------------------------------------------*
+*& Section: Detail ALV (vertical field list)
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
 *& Form PREPARE_DETAIL_ALVS
 *& Rebuild GT_VERTICAL_DATA; first display or lightweight grid refresh.
 *&---------------------------------------------------------------------*
@@ -638,10 +637,6 @@ FORM prepare_detail_alvs.
   cl_gui_cfw=>flush( ).
 
 ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Section: Detail ALV (vertical field list)
-*&---------------------------------------------------------------------*
 
 *&---------------------------------------------------------------------*
 *& Form BUILD_VERTICAL_DATA
@@ -812,11 +807,6 @@ ENDFORM.
 *& Load new page into workspace, rebuild toolbar + master + detail.
 *&---------------------------------------------------------------------*
 FORM change_page_logic.
-
-  LOOP AT gt_master_sheets ASSIGNING FIELD-SYMBOL(<ls_sheet>)
-       WHERE page_no <> gv_current_page.
-  ENDLOOP.
-
   DATA(lv_page) = gv_current_page.
 
   PERFORM load_page_to_workspace USING lv_page.
@@ -861,25 +851,29 @@ ENDFORM.
 *& Free GUI controls and data references on leave / rebuild.
 *&---------------------------------------------------------------------*
 FORM free_alv_objects.
-  IF go_text_edit IS BOUND. go_text_edit->free( ). FREE go_text_edit. ENDIF.
 
-  IF go_grid_master IS BOUND. go_grid_master->free( ). FREE go_grid_master. ENDIF.
-  IF go_grid_detail IS BOUND. go_grid_detail->free( ). FREE go_grid_detail. ENDIF.
+  IF go_text_edit IS BOUND.    go_text_edit->free( ).    FREE go_text_edit.    ENDIF.
 
-  IF go_cont_left  IS BOUND. go_cont_left->free( ).  FREE go_cont_left.  ENDIF.
-  IF go_cont_right IS BOUND. go_cont_right->free( ). FREE go_cont_right. ENDIF.
+  IF go_grid_master IS BOUND.  go_grid_master->free( ).  FREE go_grid_master.  ENDIF.
 
-  IF go_split_main  IS BOUND. go_split_main->free( ).  FREE go_split_main.  ENDIF.
+  IF go_grid_detail IS BOUND.  go_grid_detail->free( ).  FREE go_grid_detail.  ENDIF.
+
+  IF go_cont_left IS BOUND.    go_cont_left->free( ).    FREE go_cont_left.    ENDIF.
+
+  IF go_cont_right IS BOUND.   go_cont_right->free( ).   FREE go_cont_right.   ENDIF.
+
+  IF go_split_main IS BOUND.   go_split_main->free( ).   FREE go_split_main.   ENDIF.
 
   IF go_toolbar_tabs IS BOUND. go_toolbar_tabs->free( ). FREE go_toolbar_tabs. ENDIF.
-  IF go_cont_tabs    IS BOUND. go_cont_tabs->free( ).    FREE go_cont_tabs.    ENDIF.
-  IF go_cont_main    IS BOUND. go_cont_main->free( ).    FREE go_cont_main.    ENDIF.
+
+  IF go_cont_tabs IS BOUND.    go_cont_tabs->free( ).    FREE go_cont_tabs.    ENDIF.
+
+  IF go_cont_main IS BOUND.    go_cont_main->free( ).    FREE go_cont_main.    ENDIF.
 
   FREE go_alv_events.
 
-  IF gv_dref_master IS BOUND.
-    FREE gv_dref_master.
-  ENDIF.
+  IF gv_dref_master IS BOUND.  FREE gv_dref_master.  ENDIF.
+
   UNASSIGN <gfs_master>.
 
 ENDFORM.
@@ -932,12 +926,9 @@ FORM show_detail_alv_error_popup USING pv_error_msg TYPE string.
   ENDIF.
 
 ENDFORM.
+
 *&---------------------------------------------------------------------*
 *& Form get_alv_exclude_tb_func
-*&---------------------------------------------------------------------*
-*& text
-*&---------------------------------------------------------------------*
-*&      <-- PT_EXCLUDE
 *&---------------------------------------------------------------------*
 FORM get_alv_exclude_tb_func  CHANGING pt_exclude TYPE ui_functions.
   pt_exclude = VALUE #(

@@ -27,6 +27,7 @@ ENDMODULE.
 *& then SWITCH_ALV_MODE when not in plain preview.
 *&---------------------------------------------------------------------*
 MODULE init_0100 OUTPUT.
+
   IF gv_error = abap_on AND gv_plain_preview = abap_off.
     RETURN.
   ENDIF.

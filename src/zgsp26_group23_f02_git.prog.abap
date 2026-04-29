@@ -10,15 +10,10 @@
 *&  single-row revalidation, and detail-ALV edit sync back to master.
 *&---------------------------------------------------------------------*
 
-
-*&---------------------------------------------------------------------*
-*& Section: Full-grid validation
-*&---------------------------------------------------------------------*
-
 *&---------------------------------------------------------------------*
 *& Form VALIDATE_DATA
-*& Walk <gfs_data> x GT_HEADER_LIST: mandatory, date, positive, range,
-*& fixed list; skip cells already in GT_ERROR_LOG; then duplicate keys.
+*& Walk <gfs_data> x GT_HEADER_LIST: run check_one_cell per cell;
+*& then duplicate key check at the end.
 *&---------------------------------------------------------------------*
 
 FORM validate_data.
@@ -26,22 +21,18 @@ FORM validate_data.
     RETURN.
   ENDIF.
 
-  DATA: ls_header  TYPE gty_data_header,
-        lv_tabix   TYPE i,
-        lo_type    TYPE REF TO cl_abap_typedescr,
-        lv_err_msg TYPE string.
-
-  FIELD-SYMBOLS: <lfs_line>  TYPE any,
-                 <lfs_value> TYPE any.
-
-  " Outer loop: each data row in the generic internal table.
   IF <gfs_data> IS NOT ASSIGNED.
     MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
-  DATA lv_num_check TYPE decfloat34.
+  DATA: ls_header TYPE gty_data_header,
+        lv_tabix  TYPE i.
 
+  FIELD-SYMBOLS: <lfs_line>  TYPE any,
+                 <lfs_value> TYPE any.
+
+  " Outer loop: each data row in the generic internal table.
   LOOP AT <gfs_data> ASSIGNING <lfs_line>.
     lv_tabix = sy-tabix.
 
@@ -51,215 +42,17 @@ FORM validate_data.
       ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
 
       IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
-
         " Logical data row index (matches GT_ERROR_LOG / UI).
         DATA(lv_real_row) = lv_tabix + gc_data_start - 1.
 
-*        SORT gt_error_log BY row_index col_pos.
-*        READ TABLE gt_error_log TRANSPORTING NO FIELDS
-*          WITH KEY row_index = lv_real_row
-*                   col_pos = ls_header-col_pos BINARY SEARCH.
-*
-*        IF sy-subrc = 0.
-*          CONTINUE.
-*        ENDIF.
-
-        IF ls_header-is_mand = abap_on AND  <lfs_value> IS INITIAL.
-          lv_err_msg = replace( val = TEXT-109 sub = '&1' with = ls_header-descr ).
-          PERFORM add_error USING lv_real_row
-                                  ls_header-col_pos
-                                  ls_header-tech_name
-                                  lv_err_msg.
-          CONTINUE.
-*          lv_err_msg = |{ TEXT-087 } '{ ls_header-descr }'{ TEXT-088 }|.
-*          PERFORM add_error USING lv_real_row
-*                                  ls_header-col_pos
-*                                  ls_header-tech_name
-*                                  lv_err_msg.
-*          CONTINUE.
-        ENDIF.
-
-        IF <lfs_value> IS INITIAL.
-          CONTINUE.
-        ENDIF.
-
-        lo_type = cl_abap_typedescr=>describe_by_data( <lfs_value> ).
-        IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
-          DATA: lv_date_check TYPE d,
-                lv_date_str   TYPE string.
-
-          lv_date_check = condense( val = <lfs_value> ).
-
-          IF lv_date_check IS NOT INITIAL.
-
-            IF strlen( lv_date_check ) <> 8 OR lv_date_check CN '0123456789'.
-              lv_err_msg = replace( val = TEXT-110 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING lv_real_row
-                                      ls_header-col_pos
-                                      ls_header-tech_name
-                                      lv_err_msg.
-              CONTINUE.
-            ENDIF.
-            CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
-              EXPORTING
-                date                      = lv_date_check
-              EXCEPTIONS
-                plausibility_check_failed = 1
-                OTHERS                    = 2.
-
-            IF sy-subrc <> 0.
-              lv_err_msg = replace( val = TEXT-111 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING lv_real_row
-                                      ls_header-col_pos
-                                      ls_header-tech_name
-                                      lv_err_msg.
-              CONTINUE.
-            ENDIF.
-
-          ENDIF.
-        ENDIF.
-
-
-*        " Date components: SAP plausibility check.
-*        lo_type = cl_abap_typedescr=>describe_by_data( <lfs_value> ).
-*
-*        IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
-*          CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
-*            EXPORTING
-*              date                      = <lfs_value>
-*            EXCEPTIONS
-*              plausibility_check_failed = 1
-*              OTHERS                    = 2.
-*
-*          IF sy-subrc <> 0.
-*            lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-090 }|.
-*            PERFORM add_error USING lv_real_row
-*                                    ls_header-col_pos
-*                                    ls_header-tech_name
-*                                    lv_err_msg.
-*            CONTINUE.
-*          ENDIF.
-*        ENDIF.
-
-        " Positive-only columns (+ in tech row).
-        IF ls_header-is_pos = abap_on.
-
-          TRY.
-              lv_num_check = <lfs_value>.
-
-              IF lv_num_check < 0.
-                lv_err_msg = replace( val = TEXT-112 sub = '&1' with = ls_header-descr ).
-                PERFORM add_error USING lv_real_row
-                                        ls_header-col_pos
-                                        ls_header-tech_name
-                                        lv_err_msg.
-              ENDIF.
-            CATCH cx_sy_conversion_no_number.
-              lv_err_msg = replace( val = TEXT-113 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING lv_real_row
-                                      ls_header-col_pos
-                                      ls_header-tech_name
-                                      lv_err_msg.
-              CONTINUE.
-          ENDTRY.
-        ENDIF.
-
-        " Numeric range [RNG:low-high] from header.
-        IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
-          TRY.
-
-              lv_num_check = CONV string( <lfs_value> ).
-
-              IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
-                lv_err_msg = replace( val  = replace( val  = TEXT-114
-                                                sub  = '&1'
-                                                with = |{ ls_header-descr }| )
-                                sub  = '&2'
-                                with = |{ ls_header-rng_low }| ).
-                PERFORM add_error USING lv_real_row
-                                        ls_header-col_pos
-                                        ls_header-tech_name
-                                        lv_err_msg.
-              ENDIF.
-              IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
-                lv_err_msg = replace( val  = replace( val  = TEXT-115
-                                                sub  = '&1'
-                                                with = ls_header-descr )
-                                sub  = '&2'
-                                with = |{ ls_header-rng_high }| ).
-                PERFORM add_error USING lv_real_row
-                                        ls_header-col_pos
-                                        ls_header-tech_name
-                                        lv_err_msg.
-              ENDIF.
-            CATCH cx_sy_conversion_no_number.
-              lv_err_msg = replace( val = TEXT-134 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING lv_real_row
-                                      ls_header-col_pos
-                                      ls_header-tech_name
-                                      lv_err_msg.
-*          CATCH cx_sy_conversion_error.
-              CONTINUE.
-          ENDTRY.
-*          TRY.
-*
-*              lv_num_check = CONV string( <lfs_value> ).
-*
-*              IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
-*                lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-097 }{ ls_header-rng_low }{ TEXT-098 }|.
-*                PERFORM add_error USING lv_real_row
-*                                        ls_header-col_pos
-*                                        ls_header-tech_name
-*                                        lv_err_msg.
-*              ENDIF.
-*
-*              IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
-*                lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-100 }{ ls_header-rng_high }{ TEXT-101 }|.
-*                PERFORM add_error USING lv_real_row
-*                                        ls_header-col_pos
-*                                        ls_header-tech_name
-*                                        lv_err_msg.
-*              ENDIF.
-*            CATCH cx_sy_conversion_error.
-*              CONTINUE.
-*          ENDTRY.
-        ENDIF.
-
-        " Allowed value list [LIST:...] from header.
-        IF ls_header-val_list IS NOT INITIAL.
-          DATA: lv_clean_list  TYPE string,
-                lv_search_list TYPE string,
-                lv_search_val  TYPE string.
-
-          lv_clean_list = replace( val = ls_header-val_list sub = '[LIST:' with = '' ).
-          lv_clean_list = replace( val = lv_clean_list      sub = ']'      with = '' ).
-*          CONDENSE lv_clean_list NO-GAPS. !OBSOLETE SYNTAX
-          lv_clean_list = condense(
-                   val = lv_clean_list
-                   del = '' ).
-
-          lv_search_list = |;{ lv_clean_list };|.
-          lv_search_val  = |;{ condense( val = |{ <lfs_value> }| ) };|.
-
-          IF NOT lv_search_list CS lv_search_val.
-            lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-103 }{ <lfs_value> }{ TEXT-104 }{ lv_clean_list }{ TEXT-105 }|.
-            PERFORM add_error USING lv_real_row
-                                    ls_header-col_pos
-                                    ls_header-tech_name
-                                    lv_err_msg.
-          ENDIF.
-        ENDIF.
-
+        PERFORM check_one_cell USING    <lfs_value>
+                                            ls_header
+                                            lv_real_row.
       ENDIF.
     ENDLOOP.
   ENDLOOP.
-  DELETE gt_error_log WHERE message CS TEXT-044.
   PERFORM validate_duplicate_in_file.
 ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Section: Error log helpers
-*&---------------------------------------------------------------------*
 
 *&---------------------------------------------------------------------*
 *& Form ADD_ERROR
@@ -283,10 +76,6 @@ FORM add_error USING  pv_row_idx TYPE i
 ENDFORM.
 
 *&---------------------------------------------------------------------*
-*& Section: Duplicate composite keys ([KEY] columns)
-*&---------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
 *& Form VALIDATE_DUPLICATE_IN_FILE
 *& First occurrence of each key composite wins; later rows get errors on
 *& all key columns. Message text must stay aligned with TEXT-044 cleanup.
@@ -303,13 +92,13 @@ FORM validate_duplicate_in_file.
     RETURN.
   ENDIF.
 
-  TYPES: BEGIN OF ty_tracked_key,
+  TYPES: BEGIN OF lty_tracked_key,
            key_value TYPE string,
            first_row TYPE i,
-         END OF ty_tracked_key.
+         END OF lty_tracked_key.
 
-  DATA: lt_tracked TYPE HASHED TABLE OF ty_tracked_key WITH UNIQUE KEY key_value,
-        ls_tracked TYPE ty_tracked_key.
+  DATA: lt_tracked TYPE HASHED TABLE OF lty_tracked_key WITH UNIQUE KEY key_value,
+        ls_tracked TYPE lty_tracked_key.
 
   DATA: lv_composite_key TYPE string,
         lv_val_str       TYPE string.
@@ -368,22 +157,18 @@ FORM validate_duplicate_in_file.
 
 ENDFORM.
 
+
 *&---------------------------------------------------------------------*
 *& Section: Single-row revalidation (after edit or date F4)
 *&---------------------------------------------------------------------*
 
 *&---------------------------------------------------------------------*
 *& Form REVALIDATE_SINGLE_ROW
-*& Clear errors for pv_data_row; re-run header rules on one <gfs_data> row;
-*& remap tech names for ASSIGN; refresh duplicate-key pass at end.
+*& Clear errors for pv_data_row; re-run check_one_cell on every
+*& header column for that one row; refresh duplicate-key pass at end.
 *&---------------------------------------------------------------------*
 FORM revalidate_single_row USING pv_tabix    TYPE i
                                  pv_data_row TYPE i.
-
-  DATA: ls_header    TYPE gty_data_header,
-        lo_type      TYPE REF TO cl_abap_typedescr,
-        lv_err_msg   TYPE string,
-        lv_num_check TYPE decfloat34.
 
   FIELD-SYMBOLS: <lfs_line>  TYPE any,
                  <lfs_value> TYPE any.
@@ -400,135 +185,615 @@ FORM revalidate_single_row USING pv_tabix    TYPE i
     RETURN.
   ENDIF.
 
-  LOOP AT gt_header_list INTO ls_header.
+  DATA: ls_header TYPE gty_data_header.
 
+  LOOP AT gt_header_list INTO ls_header.
     ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
     IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
 
-      IF ls_header-is_mand = abap_on AND <lfs_value> IS INITIAL.
-        MESSAGE e070(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
-*        lv_err_msg = replace( val = TEXT-109 sub = '&1' with = ls_header-descr ).
-        PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-        CONTINUE.
-      ENDIF.
-
-      IF <lfs_value> IS INITIAL. CONTINUE. ENDIF.
-
-      lo_type = cl_abap_typedescr=>describe_by_data( <lfs_value> ).
-      IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
-        DATA: lv_date_check TYPE d,
-              lv_date_str   TYPE string.
-
-        lv_date_check = condense( val = <lfs_value> ).
-
-        IF lv_date_check IS NOT INITIAL.
-
-          IF strlen( lv_date_check ) <> 8 OR lv_date_check CN '0123456789'.
-            MESSAGE e071(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
-*            lv_err_msg = replace( val = TEXT-110 sub = '&1' with = ls_header-descr ).
-            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            CONTINUE.
-          ENDIF.
-          CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
-            EXPORTING
-              date                      = lv_date_check
-            EXCEPTIONS
-              plausibility_check_failed = 1
-              OTHERS                    = 2.
-
-          IF sy-subrc <> 0.
-            MESSAGE e072(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
-*            lv_err_msg = replace( val = TEXT-111 sub = '&1' with = ls_header-descr ).
-            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            CONTINUE.
-          ENDIF.
-
-        ENDIF.
-      ENDIF.
-
-      IF ls_header-is_pos = abap_on.
-        TRY.
-            lv_num_check = <lfs_value>.
-            IF lv_num_check < 0.
-              MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
-*              lv_err_msg = replace( val = TEXT-113 sub = '&1' with = ls_header-descr ).
-              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            ENDIF.
-          CATCH cx_sy_conversion_no_number.
-            MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
-            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            CONTINUE.
-*          CATCH cx_sy_conversion_error.
-*            CONTINUE.
-        ENDTRY.
-      ENDIF.
-
-      IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
-        TRY.
-
-            lv_num_check = CONV string( <lfs_value> ).
-
-            IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
-              MESSAGE e074(zmsg_gr23) WITH ls_header-descr ls_header-rng_low INTO lv_err_msg.
-*              lv_err_msg = replace( val  = replace( val  = TEXT-114
-*                                              sub  = '&1'
-*                                              with = |{ ls_header-descr }| )
-*                              sub  = '&2'
-*                              with = |{ ls_header-rng_low }| ).
-              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            ENDIF.
-            IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
-              MESSAGE e075(zmsg_gr23) WITH ls_header-descr ls_header-rng_high INTO lv_err_msg.
-*              lv_err_msg = replace( val  = TEXT-115
-*                                              sub  = '&1'
-*                                              with = ls_header-descr ).
-*              lv_err_msg = replace( val  = lv_err_msg
-*                              sub  = '&2'
-*                              with = |{ ls_header-rng_high }| ).
-              PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-            ENDIF.
-          CATCH cx_sy_conversion_no_number.
-            MESSAGE e076(zmsg_gr23) WITH ls_header-descr ls_header-rng_low INTO lv_err_msg.
-*            lv_err_msg = replace( val = TEXT-134 sub = '&1' with = ls_header-descr ).
-            PERFORM add_error USING pv_data_row ls_header-col_pos ls_header-tech_name lv_err_msg.
-*          CATCH cx_sy_conversion_error.
-            CONTINUE.
-        ENDTRY.
-      ENDIF.
-
-      IF ls_header-val_list IS NOT INITIAL.
-        DATA: lv_clean_list2  TYPE string,
-              lv_search_list2 TYPE string,
-              lv_search_val2  TYPE string.
-
-        lv_clean_list2 = replace( val = ls_header-val_list sub = '[LIST:' with = '' ).
-        lv_clean_list2 = replace( val = lv_clean_list2     sub = ']'      with = '' ).
-*        CONDENSE lv_clean_list2 NO-GAPS. !OBSOLETE SYNTAX
-        lv_clean_list2 = condense(
-                   val = lv_clean_list2
-                   del = '' ).
-
-        lv_search_list2 = |;{ lv_clean_list2 };|.
-        lv_search_val2  = |;{ condense( val = |{ <lfs_value> }| ) };|.
-
-        IF NOT lv_search_list2 CS lv_search_val2.
-          MESSAGE e076(zmsg_gr23) WITH ls_header-descr <lfs_value> lv_clean_list2 INTO lv_err_msg.
-*          lv_err_msg = TEXT-080.
-*          REPLACE ALL OCCURRENCES OF '&1' IN lv_err_msg WITH ls_header-descr.
-*          REPLACE ALL OCCURRENCES OF '&2' IN lv_err_msg WITH <lfs_value>.
-*          REPLACE ALL OCCURRENCES OF '&3' IN lv_err_msg WITH lv_clean_list2.
-          PERFORM add_error USING pv_data_row
-                                  ls_header-col_pos
-                                  ls_header-tech_name
-                                  lv_err_msg.
-        ENDIF.
-      ENDIF.
+      PERFORM check_one_cell USING    <lfs_value>
+                                          ls_header
+                                          pv_data_row.
     ENDIF.
-
   ENDLOOP.
-  DELETE gt_error_log WHERE message CS TEXT-044.
   PERFORM validate_duplicate_in_file.
 ENDFORM.
+
+
+*&---------------------------------------------------------------------*
+*& Section: Shared cell-level validation kernel
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*& Form check_one_cell
+*& Apply all active header rules (mandatory, date, positive, range, list)
+*& to a single field-symbol value and log any error via ADD_ERROR.
+*& Called by both VALIDATE_DATA (full pass) and REVALIDATE_SINGLE_ROW.
+*&---------------------------------------------------------------------*
+FORM check_one_cell USING    pv_value  TYPE any
+                                 ps_header   TYPE gty_data_header
+                                 pv_data_row TYPE i.
+
+  DATA: lv_err_msg   TYPE string,
+        lv_num_check TYPE decfloat34,
+        lo_type      TYPE REF TO cl_abap_typedescr.
+
+  " --- 1. Mandatory check ------------------------------------------
+  IF ps_header-is_mand = abap_on AND pv_value IS INITIAL.
+    lv_err_msg = replace( val = TEXT-109 sub = '&1' with = ps_header-descr ).
+*    MESSAGE e070(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+    PERFORM add_error USING pv_data_row
+                            ps_header-col_pos
+                            ps_header-tech_name
+                            lv_err_msg.
+    RETURN.  " No further checks make sense on an empty mandatory cell.
+  ENDIF.
+
+  " Skip remaining rules if cell is empty (non-mandatory).
+  IF pv_value IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  " --- 2. Date plausibility check ----------------------------------
+  lo_type = cl_abap_typedescr=>describe_by_data( pv_value ).
+  IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
+
+    DATA: lv_date_check TYPE d.
+    lv_date_check = condense( val = pv_value ).
+
+    IF lv_date_check IS NOT INITIAL.
+
+      IF strlen( lv_date_check ) <> 8 OR lv_date_check CN '0123456789'.
+        lv_err_msg = replace( val = TEXT-110 sub = '&1' with = ps_header-descr ).
+*        MESSAGE e071(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+        PERFORM add_error USING pv_data_row
+                                ps_header-col_pos
+                                ps_header-tech_name
+                                lv_err_msg.
+        RETURN.
+      ENDIF.
+
+      CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
+        EXPORTING
+          date                      = lv_date_check
+        EXCEPTIONS
+          plausibility_check_failed = 1
+          OTHERS                    = 2.
+
+      IF sy-subrc <> 0.
+        lv_err_msg = replace( val = TEXT-111 sub = '&1' with = ps_header-descr ).
+*        MESSAGE e072(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+        PERFORM add_error USING pv_data_row
+                                ps_header-col_pos
+                                ps_header-tech_name
+                                lv_err_msg.
+        RETURN.
+      ENDIF.
+
+    ENDIF.
+  ENDIF.
+
+  " --- 3. Positive-only check (+) ----------------------------------
+  IF ps_header-is_pos = abap_on.
+    TRY.
+        lv_num_check = pv_value.
+        IF lv_num_check < 0.
+          lv_err_msg = replace( val = TEXT-112 sub = '&1' with = ps_header-descr ).
+*          MESSAGE e073(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+          PERFORM add_error USING pv_data_row
+                                  ps_header-col_pos
+                                  ps_header-tech_name
+                                  lv_err_msg.
+        ENDIF.
+      CATCH cx_sy_conversion_no_number.
+        lv_err_msg = replace( val = TEXT-112 sub = '&1' with = ps_header-descr ).
+*        MESSAGE e073(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+        PERFORM add_error USING pv_data_row
+                                ps_header-col_pos
+                                ps_header-tech_name
+                                lv_err_msg.
+        RETURN.
+    ENDTRY.
+  ENDIF.
+
+  " --- 4. Numeric range [RNG:low-high] -----------------------------
+  IF ps_header-rng_low IS NOT INITIAL OR ps_header-rng_high IS NOT INITIAL.
+    TRY.
+        lv_num_check = CONV string( pv_value ).
+
+        IF ps_header-rng_low IS NOT INITIAL AND lv_num_check < ps_header-rng_low.
+          lv_err_msg = replace( val  = replace( val  = TEXT-114
+                                                sub  = '&1'
+                                                with = ps_header-descr )
+                                sub  = '&2'
+                                with = CONV string( ps_header-rng_low ) ).
+*          MESSAGE e074(zmsg_gr23) WITH ps_header-descr ps_header-rng_low INTO lv_err_msg.
+          PERFORM add_error USING pv_data_row
+                                  ps_header-col_pos
+                                  ps_header-tech_name
+                                  lv_err_msg.
+        ENDIF.
+        IF ps_header-rng_high IS NOT INITIAL AND lv_num_check > ps_header-rng_high.
+          lv_err_msg = TEXT-115.
+          lv_err_msg = replace( val  = replace( val  = TEXT-115
+                                                sub  = '&1'
+                                                with = ps_header-descr )
+                                sub  = '&2'
+                                with = CONV string( ps_header-rng_low ) ).
+*          MESSAGE e075(zmsg_gr23) WITH ps_header-descr ps_header-rng_high INTO lv_err_msg.
+          PERFORM add_error USING pv_data_row
+                                  ps_header-col_pos
+                                  ps_header-tech_name
+                                  lv_err_msg.
+        ENDIF.
+      CATCH cx_sy_conversion_no_number.
+        lv_err_msg =  replace( val  = TEXT-134
+                               sub  = '&1'
+                               with = ps_header-descr ).
+*        MESSAGE e076(zmsg_gr23) WITH ps_header-descr INTO lv_err_msg.
+        PERFORM add_error USING pv_data_row
+                                ps_header-col_pos
+                                ps_header-tech_name
+                                lv_err_msg.
+        RETURN.
+    ENDTRY.
+  ENDIF.
+
+  " --- 5. Allowed value list [LIST:...] ---
+  IF ps_header-val_list IS NOT INITIAL.
+    DATA: lt_list_values TYPE TABLE OF string,
+          lv_list_item   TYPE string,
+          lv_is_valid    TYPE abap_bool,
+          lo_dref        TYPE REF TO data.
+
+    FIELD-SYMBOLS: <lfs_list_item_typed> TYPE any.
+
+    SPLIT ps_header-val_list AT ';' INTO TABLE lt_list_values.
+
+    " Create a typed helper variable that matches pv_value exactly.
+    " Assigning each list entry to it lets ABAP handle padding/conversion
+    " (e.g. '3' -> '03' for NUMC2) before the equality test.
+    CREATE DATA lo_dref LIKE pv_value.
+    ASSIGN lo_dref->* TO <lfs_list_item_typed>.
+    lv_is_valid = abap_off.
+
+    LOOP AT lt_list_values INTO lv_list_item.
+      TRY.
+          <lfs_list_item_typed> = lv_list_item.
+          IF pv_value = <lfs_list_item_typed>.
+            lv_is_valid = abap_on.
+            EXIT.
+          ENDIF.
+
+        CATCH cx_sy_conversion_error.
+          lv_err_msg =  replace( val = TEXT-080    sub  = '&1'   with = ps_header-descr ).
+          lv_err_msg =  replace( val = lv_err_msg  sub  = '&1'   with = pv_value ).
+          lv_err_msg =  replace( val = lv_err_msg  sub  = '&1'   with = pv_value ).
+      ENDTRY.
+    ENDLOOP.
+
+    IF lv_is_valid = abap_off.
+          lv_err_msg =  replace( val = TEXT-080    sub  = '&1'   with = ps_header-descr ).
+          lv_err_msg =  replace( val = lv_err_msg  sub  = '&1'   with = pv_value ).
+          lv_err_msg =  replace( val = lv_err_msg  sub  = '&1'   with = pv_value ).
+      PERFORM add_error USING pv_data_row
+                              ps_header-col_pos
+                              ps_header-tech_name
+                              lv_err_msg.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+
+
+
+*&---------------------------------------------------------------------*
+*& Section: Full-grid validation
+*&---------------------------------------------------------------------*
+
+**&---------------------------------------------------------------------*
+**& Form VALIDATE_DATA
+**& Walk <gfs_data> x GT_HEADER_LIST: mandatory, date, positive, range,
+**& fixed list; skip cells already in GT_ERROR_LOG; then duplicate keys.
+**&---------------------------------------------------------------------*
+*
+*FORM validate_data.
+*  IF gv_error = abap_on.
+*    RETURN.
+*  ENDIF.
+*
+*  DATA: ls_header  TYPE gty_data_header,
+*        lv_tabix   TYPE i,
+*        lo_type    TYPE REF TO cl_abap_typedescr,
+*        lv_err_msg TYPE string.
+*
+*  FIELD-SYMBOLS: <lfs_line>  TYPE any,
+*                 <lfs_value> TYPE any.
+*
+*  " Outer loop: each data row in the generic internal table.
+*  IF <gfs_data> IS NOT ASSIGNED.
+*    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+*    RETURN.
+*  ENDIF.
+*
+*  DATA lv_num_check TYPE decfloat34.
+*
+*  LOOP AT <gfs_data> ASSIGNING <lfs_line>.
+*    lv_tabix = sy-tabix.
+*
+*    " Inner loop: each column rule from header metadata.
+*    LOOP AT gt_header_list INTO ls_header.
+*
+*      ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
+*
+*      IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
+*        " Logical data row index (matches GT_ERROR_LOG / UI).
+*        DATA(lv_real_row) = lv_tabix + gc_data_start - 1.
+*
+*        IF ls_header-is_mand = abap_on AND  <lfs_value> IS INITIAL.
+*          MESSAGE e070(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*          PERFORM add_error USING lv_real_row
+*                                  ls_header-col_pos
+*                                  ls_header-tech_name
+*                                  lv_err_msg.
+*          CONTINUE.
+*        ENDIF.
+*
+*        IF <lfs_value> IS INITIAL.
+*          CONTINUE.
+*        ENDIF.
+*
+*        lo_type = cl_abap_typedescr=>describe_by_data( <lfs_value> ).
+*        IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
+*          DATA: lv_date_check TYPE d,
+*                lv_date_str   TYPE string.
+*
+*          lv_date_check = condense( val = <lfs_value> ).
+*
+*          IF lv_date_check IS NOT INITIAL.
+*
+*            IF strlen( lv_date_check ) <> 8 OR lv_date_check CN '0123456789'.
+*              MESSAGE e071(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*              PERFORM add_error USING lv_real_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*              CONTINUE.
+*            ENDIF.
+*            CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
+*              EXPORTING
+*                date                      = lv_date_check
+*              EXCEPTIONS
+*                plausibility_check_failed = 1
+*                OTHERS                    = 2.
+*
+*            IF sy-subrc <> 0.
+*              MESSAGE e072(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*              PERFORM add_error USING lv_real_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*              CONTINUE.
+*            ENDIF.
+*
+*          ENDIF.
+*        ENDIF.
+*
+*        " Positive-only columns (+ in tech row).
+*        IF ls_header-is_pos = abap_on.
+*
+*          TRY.
+*              lv_num_check = <lfs_value>.
+*
+*              IF lv_num_check < 0.
+*                MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*                PERFORM add_error USING lv_real_row
+*                                        ls_header-col_pos
+*                                        ls_header-tech_name
+*                                        lv_err_msg.
+*              ENDIF.
+*            CATCH cx_sy_conversion_no_number.
+*              MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*              PERFORM add_error USING lv_real_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*              CONTINUE.
+*          ENDTRY.
+*        ENDIF.
+*
+*        " Numeric range [RNG:low-high] from header.
+*        IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
+*          TRY.
+*
+*              lv_num_check = CONV string( <lfs_value> ).
+*
+*              IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
+*                MESSAGE e074(zmsg_gr23) WITH ls_header-descr ls_header-rng_low INTO lv_err_msg.
+*                PERFORM add_error USING lv_real_row
+*                                        ls_header-col_pos
+*                                        ls_header-tech_name
+*                                        lv_err_msg.
+*              ENDIF.
+*              IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
+*                MESSAGE e075(zmsg_gr23) WITH ls_header-descr ls_header-rng_high INTO lv_err_msg.
+*                PERFORM add_error USING lv_real_row
+*                                        ls_header-col_pos
+*                                        ls_header-tech_name
+*                                        lv_err_msg.
+*              ENDIF.
+*            CATCH cx_sy_conversion_no_number.
+*              MESSAGE e076(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*              PERFORM add_error USING lv_real_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*              CONTINUE.
+*          ENDTRY.
+*        ENDIF.
+*
+*        " Allowed value list [LIST:...] from header.
+*        IF ls_header-val_list IS NOT INITIAL.
+*          DATA: lv_clean_list2 TYPE string,
+*                lt_list_values TYPE TABLE OF string,
+*                lv_list_item   TYPE string,
+*                lv_is_valid    TYPE abap_bool,
+*                lo_dref        TYPE REF TO data.
+*
+*          FIELD-SYMBOLS: <lfs_list_item_typed> TYPE any.
+*
+*          SPLIT ls_header-val_list AT ';' INTO TABLE lt_list_values.
+*
+*          " 3. Khởi tạo biến động có CÙNG TYPE với giá trị field hiện tại (<lfs_value>)
+*          CREATE DATA lo_dref LIKE <lfs_value>.
+*          ASSIGN lo_dref->* TO <lfs_list_item_typed>.
+*          lv_is_valid = abap_off.
+*          " 4. Kiểm tra từng giá trị trong list so với dữ liệu đầu vào
+*          LOOP AT lt_list_values INTO lv_list_item.
+*            TRY.
+*                " Tại đây: Ép kiểu dữ liệu cấu hình ('3') thành định dạng của field ('03')
+*                <lfs_list_item_typed> = lv_list_item.
+*
+*                " So sánh chính xác toán học & định dạng (vd: '03' = '03')
+*                IF <lfs_value> = <lfs_list_item_typed>.
+*                  lv_is_valid = abap_on.
+*                  EXIT. " Giá trị hợp lệ -> Dừng vòng lặp check
+*                ENDIF.
+*
+*              CATCH cx_sy_conversion_error.
+*                MESSAGE e077(zmsg_gr23) WITH ls_header-descr CONV string( <lfs_value> ) ls_header-val_list INTO lv_err_msg.
+*                PERFORM add_error USING lv_real_row
+*                                        ls_header-col_pos
+*                                        ls_header-tech_name
+*                                        lv_err_msg.
+*            ENDTRY.
+*          ENDLOOP.
+*          " 5. Thông báo lỗi nếu check hết list mà vẫn không có giá trị nào khớp
+*          IF lv_is_valid = abap_off.
+*            MESSAGE e077(zmsg_gr23) WITH ls_header-descr CONV string( <lfs_value> ) ls_header-val_list INTO lv_err_msg.
+*            PERFORM add_error USING lv_real_row
+*                                    ls_header-col_pos
+*                                    ls_header-tech_name
+*                                    lv_err_msg.
+*          ENDIF.
+**          DATA: lv_clean_list  TYPE string,
+**                lv_search_list TYPE string,
+**                lv_search_val  TYPE string.
+**
+**          lv_clean_list = replace( val = ls_header-val_list sub = '[LIST:' with = '' ).
+**          lv_clean_list = replace( val = lv_clean_list      sub = ']'      with = '' ).
+***          CONDENSE lv_clean_list NO-GAPS. !OBSOLETE SYNTAX
+**          lv_clean_list = condense(
+**                   val = lv_clean_list
+**                   del = '' ).
+**
+**          lv_search_list = |;{ lv_clean_list };|.
+**          lv_search_val  = |;{ condense( val = |{ <lfs_value> }| ) };|.
+**
+**          IF NOT lv_search_list CS lv_search_val.
+**            lv_err_msg = |{ TEXT-087 }'{ ls_header-descr }'{ TEXT-103 }{ <lfs_value> }{ TEXT-104 }{ lv_clean_list }{ TEXT-105 }|.
+**            PERFORM add_error USING lv_real_row
+**                                    ls_header-col_pos
+**                                    ls_header-tech_name
+**                                    lv_err_msg.
+**          ENDIF.
+*
+*        ENDIF.
+*      ENDIF.
+*    ENDLOOP.
+*  ENDLOOP.
+*  DELETE gt_error_log WHERE message CS TEXT-044.
+*  PERFORM validate_duplicate_in_file.
+*ENDFORM.
+
+
+*
+**&---------------------------------------------------------------------*
+**& Section: Single-row revalidation (after edit or date F4)
+**&---------------------------------------------------------------------*
+*
+**&---------------------------------------------------------------------*
+**& Form REVALIDATE_SINGLE_ROW
+**& Clear errors for pv_data_row; re-run header rules on one <gfs_data> row;
+**& remap tech names for ASSIGN; refresh duplicate-key pass at end.
+**&---------------------------------------------------------------------*
+*FORM revalidate_single_row USING pv_tabix    TYPE i
+*                                 pv_data_row TYPE i.
+*
+*  DATA: ls_header    TYPE gty_data_header,
+*        lo_type      TYPE REF TO cl_abap_typedescr,
+*        lv_err_msg   TYPE string,
+*        lv_num_check TYPE decfloat34.
+*
+*  FIELD-SYMBOLS: <lfs_line>  TYPE any,
+*                 <lfs_value> TYPE any.
+*
+*  DELETE gt_error_log WHERE row_index = pv_data_row.
+*
+*  IF <gfs_data> IS NOT ASSIGNED.
+*    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+*    RETURN.
+*  ENDIF.
+*
+*  READ TABLE <gfs_data> ASSIGNING <lfs_line> INDEX pv_tabix.
+*  IF sy-subrc <> 0.
+*    RETURN.
+*  ENDIF.
+*
+*  LOOP AT gt_header_list INTO ls_header.
+*
+*    ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
+*    IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
+*
+*      IF ls_header-is_mand = abap_on AND <lfs_value> IS INITIAL.
+*        MESSAGE e070(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*        PERFORM add_error USING pv_data_row
+*                                ls_header-col_pos
+*                                ls_header-tech_name
+*                                lv_err_msg.
+*        CONTINUE.
+*      ENDIF.
+*
+*      IF <lfs_value> IS INITIAL. CONTINUE. ENDIF.
+*
+*      lo_type = cl_abap_typedescr=>describe_by_data( <lfs_value> ).
+*      IF lo_type->type_kind = cl_abap_typedescr=>typekind_date.
+*        DATA: lv_date_check TYPE d,
+*              lv_date_str   TYPE string.
+*
+*        lv_date_check = condense( val = <lfs_value> ).
+*
+*        IF lv_date_check IS NOT INITIAL.
+*
+*          IF strlen( lv_date_check ) <> 8 OR lv_date_check CN '0123456789'.
+*            MESSAGE e071(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*            PERFORM add_error USING pv_data_row
+*                                    ls_header-col_pos
+*                                    ls_header-tech_name
+*                                    lv_err_msg.
+*            CONTINUE.
+*          ENDIF.
+*          CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
+*            EXPORTING
+*              date                      = lv_date_check
+*            EXCEPTIONS
+*              plausibility_check_failed = 1
+*              OTHERS                    = 2.
+*
+*          IF sy-subrc <> 0.
+*            MESSAGE e072(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*            PERFORM add_error USING pv_data_row
+*                                    ls_header-col_pos
+*                                    ls_header-tech_name
+*                                    lv_err_msg.
+*            CONTINUE.
+*          ENDIF.
+*
+*        ENDIF.
+*      ENDIF.
+*
+*      IF ls_header-is_pos = abap_on.
+*        TRY.
+*            lv_num_check = <lfs_value>.
+*            IF lv_num_check < 0.
+*              MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*              PERFORM add_error USING pv_data_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*            ENDIF.
+*          CATCH cx_sy_conversion_no_number.
+*            MESSAGE e073(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*            PERFORM add_error USING pv_data_row
+*                                    ls_header-col_pos
+*                                    ls_header-tech_name
+*                                    lv_err_msg.
+*            CONTINUE.
+*        ENDTRY.
+*      ENDIF.
+*
+*      IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
+*        TRY.
+*
+*            lv_num_check = CONV string( <lfs_value> ).
+*
+*            IF ls_header-rng_low IS NOT INITIAL AND lv_num_check < ls_header-rng_low.
+*              MESSAGE e074(zmsg_gr23) WITH ls_header-descr ls_header-rng_low INTO lv_err_msg.
+*              PERFORM add_error USING pv_data_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*            ENDIF.
+*            IF ls_header-rng_high IS NOT INITIAL AND lv_num_check > ls_header-rng_high.
+*              MESSAGE e075(zmsg_gr23) WITH ls_header-descr ls_header-rng_high INTO lv_err_msg.
+*              PERFORM add_error USING pv_data_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*            ENDIF.
+*          CATCH cx_sy_conversion_no_number.
+*            MESSAGE e076(zmsg_gr23) WITH ls_header-descr INTO lv_err_msg.
+*
+*            PERFORM add_error USING pv_data_row
+*                                    ls_header-col_pos
+*                                    ls_header-tech_name
+*                                    lv_err_msg.
+*            CONTINUE.
+*        ENDTRY.
+*      ENDIF.
+*
+*      IF ls_header-val_list IS NOT INITIAL.
+*
+*        DATA: lv_clean_list2 TYPE string,
+*              lt_list_values TYPE TABLE OF string,
+*              lv_list_item   TYPE string,
+*              lv_is_valid    TYPE abap_bool,
+*              lo_dref        TYPE REF TO data.
+*
+*        FIELD-SYMBOLS: <lfs_list_item_typed> TYPE any.
+*
+*        SPLIT ls_header-val_list AT ';' INTO TABLE lt_list_values.
+*
+*        " 3. Khởi tạo biến động có CÙNG TYPE với giá trị field hiện tại (<lfs_value>)
+*        CREATE DATA lo_dref LIKE <lfs_value>.
+*        ASSIGN lo_dref->* TO <lfs_list_item_typed>.
+*        lv_is_valid = abap_off.
+*        " 4. Kiểm tra từng giá trị trong list so với dữ liệu đầu vào
+*        LOOP AT lt_list_values INTO lv_list_item.
+*          TRY.
+*              " Tại đây: Ép kiểu dữ liệu cấu hình ('3') thành định dạng của field ('03')
+*              <lfs_list_item_typed> = lv_list_item.
+*
+*              " So sánh chính xác toán học & định dạng (vd: '03' = '03')
+*              IF <lfs_value> = <lfs_list_item_typed>.
+*                lv_is_valid = abap_on.
+*                EXIT. " Giá trị hợp lệ -> Dừng vòng lặp check
+*              ENDIF.
+*
+*            CATCH cx_sy_conversion_error.
+*              " Bỏ qua âm thầm nếu phần tử cấu hình trong list không ép kiểu được
+*              MESSAGE e077(zmsg_gr23) WITH ls_header-descr <lfs_value> ls_header-val_list INTO lv_err_msg.
+*              PERFORM add_error USING pv_data_row
+*                                      ls_header-col_pos
+*                                      ls_header-tech_name
+*                                      lv_err_msg.
+*          ENDTRY.
+*        ENDLOOP.
+*        " 5. Thông báo lỗi nếu check hết list mà vẫn không có giá trị nào khớp
+*        IF lv_is_valid = abap_off.
+*          MESSAGE e077(zmsg_gr23) WITH ls_header-descr <lfs_value> ls_header-val_list INTO lv_err_msg.
+*          PERFORM add_error USING pv_data_row
+*                                  ls_header-col_pos
+*                                  ls_header-tech_name
+*                                  lv_err_msg.
+*        ENDIF.
+*      ENDIF.
+*    ENDIF.
+*
+*  ENDLOOP.
+*  DELETE gt_error_log WHERE message CS TEXT-044.
+*  PERFORM validate_duplicate_in_file.
+*ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Section: Detail ALV edit pipeline
@@ -540,7 +805,7 @@ ENDFORM.
 *& length overflow, NUMC digit check, conversion; then row revalidate +
 *& refresh master/detail ALVs.
 *&---------------------------------------------------------------------*
-FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_protocol.
+FORM sync_and_revalidate USING pv_data_changed TYPE REF TO cl_alv_changed_data_protocol.
 
   DATA: ls_mod_cell TYPE lvc_s_modi,
         lv_msgv1    TYPE string,
@@ -559,7 +824,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
 
   IF sy-subrc <> 0. RETURN. ENDIF.
 
-  LOOP AT lo_data_changed->mt_good_cells INTO ls_mod_cell.
+  LOOP AT pv_data_changed->mt_good_cells INTO ls_mod_cell.
     READ TABLE gt_vertical_data INTO DATA(ls_vert) INDEX ls_mod_cell-row_id.
 
     IF sy-subrc = 0.
@@ -591,7 +856,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
             lv_msgv3 = | { TEXT-090 } |.
             lv_msgv4 = ''.
 
-            PERFORM trigger_alv_error USING    lo_data_changed
+            PERFORM trigger_alv_error USING    pv_data_changed
                                                lv_old_value_str
                                                ls_mod_cell
                                                lv_msgv1
@@ -625,7 +890,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
             lv_msgv2 = | { TEXT-124 } |.
             lv_msgv3 = | { lv_max_len }) |.
             lv_msgv4 = ''.
-            PERFORM trigger_alv_error USING    lo_data_changed
+            PERFORM trigger_alv_error USING    pv_data_changed
                                                lv_old_value_str
                                                ls_mod_cell
                                                lv_msgv1
@@ -645,7 +910,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
               lv_msgv3 = | { TEXT-086 } |.
               lv_msgv4 = | '{ ls_vert-descr }' |.
 
-              PERFORM trigger_alv_error USING    lo_data_changed
+              PERFORM trigger_alv_error USING    pv_data_changed
                                                  lv_old_value_str
                                                  ls_mod_cell
                                                  lv_msgv1
@@ -667,7 +932,7 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
               lv_msgv3 = | { TEXT-086 } |.
               lv_msgv4 = | '{ ls_vert-descr }' |.
 
-              PERFORM trigger_alv_error USING    lo_data_changed
+              PERFORM trigger_alv_error USING    pv_data_changed
                                                  lv_old_value_str
                                                  ls_mod_cell
                                                  lv_msgv1
@@ -684,12 +949,12 @@ FORM sync_and_revalidate USING lo_data_changed TYPE REF TO cl_alv_changed_data_p
     ENDIF.
   ENDLOOP.
 
-  IF lo_data_changed->mt_protocol IS NOT INITIAL.
-    lo_data_changed->display_protocol( ).
+  IF pv_data_changed->mt_protocol IS NOT INITIAL.
+    pv_data_changed->display_protocol( ).
     RETURN.
   ENDIF.
 
-  IF lines( lo_data_changed->mt_good_cells ) > 0.
+  IF lines( pv_data_changed->mt_good_cells ) > 0.
     gv_data_dirty = abap_on.
     INSERT VALUE #( page_no = gv_current_page data_row = gv_selected_data_row ) INTO TABLE gt_row_dirty.
   ENDIF.
