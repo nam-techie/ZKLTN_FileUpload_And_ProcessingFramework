@@ -190,7 +190,7 @@ FORM pai_selection_screen.
   IF sy-ucomm = 'ONLI'.
     IF p_val = abap_on OR p_stor = abap_on.
       IF p_file IS INITIAL.
-        MESSAGE e026(zmsg_gr23).
+        MESSAGE e026.
       ENDIF.
 
       lv_full_path = p_file.
@@ -201,7 +201,7 @@ FORM pai_selection_screen.
       lv_ext = to_upper( lv_ext ).
 
       IF lv_ext <> p_ftype.
-        MESSAGE w027(zmsg_gr23) WITH lv_ext p_ftype.
+        MESSAGE w027 WITH lv_ext p_ftype.
       ENDIF.
     ENDIF.
   ENDIF.

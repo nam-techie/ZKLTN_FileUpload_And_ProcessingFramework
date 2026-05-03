@@ -29,7 +29,7 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
         lv_rule_str TYPE string.
 
   " New ABAP2XLSX workbook instance.
-  CREATE OBJECT lo_excel.
+  lo_excel = NEW #( ).
 
   " First sheet already exists on create; reuse it, then ADD_NEW_WORKSHEET for others.
   DATA: lv_is_first_sheet TYPE abap_bool VALUE abap_on.
@@ -49,7 +49,7 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
               lo_worksheet = lo_excel->add_new_worksheet( ).
               lo_worksheet->set_title( ip_title = CONV #( ls_master-sheet_name ) ).
             CATCH zcx_excel INTO DATA(lx_err).
-              MESSAGE s040(zmsg_gr23) WITH ls_master-sheet_name lx_err->get_text( ).
+              MESSAGE s040 WITH ls_master-sheet_name lx_err->get_text( ).
               RETURN.
           ENDTRY.
         ENDIF.
@@ -62,20 +62,8 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
             ip_value  = ls_header-descr
           ).
 
-          lv_rule_str = ls_header-tech_name.
-
-          IF ls_header-is_mand = abap_on.
-            lv_rule_str = lv_rule_str && '*'.
-          ENDIF.
-          IF ls_header-is_pos = abap_on.
-            lv_rule_str = lv_rule_str && '+'.
-          ENDIF.
-          IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
-            lv_rule_str = lv_rule_str && |[RNG:{ ls_header-rng_low }-{ ls_header-rng_high }]|.
-          ENDIF.
-          IF ls_header-val_list IS NOT INITIAL.
-            lv_rule_str = lv_rule_str && |[LIST:{ ls_header-val_list }]|.
-          ENDIF.
+          PERFORM build_tech_rule_string USING    ls_header
+                                         CHANGING lv_rule_str.
 
           lo_worksheet->set_cell(
             ip_row    = gc_tech_row
@@ -94,15 +82,15 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
 
     CATCH zcx_excel INTO DATA(lo_err).
       " Library-level Excel error from ABAP2XLSX.
-      MESSAGE s041(zmsg_gr23) WITH lo_err->get_text( ) DISPLAY LIKE gc_displike_err.
+      MESSAGE s041 WITH lo_err->get_text( ) DISPLAY LIKE gc_displike_err.
   ENDTRY.
 
   TRY.
-      CREATE OBJECT lo_writer TYPE zcl_excel_writer_2007.
+      lo_writer = NEW zcl_excel_writer_2007( ).
       lv_xstring = lo_writer->write_file( lo_excel ).
 
     CATCH zcx_excel INTO lx_err.
-      MESSAGE s042(zmsg_gr23) WITH lx_err->get_text( ) DISPLAY LIKE gc_displike_err.
+      MESSAGE s042 WITH lx_err->get_text( ) DISPLAY LIKE gc_displike_err.
       RETURN.
   ENDTRY.
 
@@ -116,10 +104,10 @@ FORM rebuild_base64_file_content CHANGING pv_base64 TYPE string.
         OTHERS  = 1.
 
     IF sy-subrc <> 0.
-      MESSAGE s043(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s043 DISPLAY LIKE gc_displike_err.
     ENDIF.
   ELSE.
-    MESSAGE s043(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s043 DISPLAY LIKE gc_displike_err.
   ENDIF.
 ENDFORM.
 
@@ -131,10 +119,12 @@ ENDFORM.
 FORM rebuild_text_base64 USING    pv_file_type TYPE char10
                          CHANGING pv_base64    TYPE string.
 
-  DATA: lt_lines     TYPE string_table,
+  DATA: lv_desc_line TYPE string,
+        lv_tech_line TYPE string,
         lv_line      TYPE string,
         lv_val_str   TYPE string,
-        lv_separator TYPE char1.
+        lv_separator TYPE char1,
+        lv_rule_str  TYPE string.
 
   FIELD-SYMBOLS: <lfs_line>  TYPE any,
                  <lfs_value> TYPE any.
@@ -146,47 +136,32 @@ FORM rebuild_text_base64 USING    pv_file_type TYPE char10
     lv_separator = cl_abap_char_utilities=>horizontal_tab.
   ENDIF.
 
+  IF gt_header_list IS INITIAL.
+    RETURN.
+  ENDIF.
+
   " Header row: descriptions in column order.
   SORT gt_header_list BY col_pos.
 
-  CLEAR lv_line.
+  CLEAR gt_preview_lines.
+
   LOOP AT gt_header_list INTO DATA(ls_header).
+    PERFORM build_tech_rule_string USING    ls_header
+                                   CHANGING lv_rule_str.
     IF sy-tabix = 1.
-      lv_line = ls_header-descr.
+      lv_desc_line = ls_header-descr.
+      lv_tech_line = lv_rule_str.
     ELSE.
-      lv_line = |{ lv_line }{ lv_separator }{ ls_header-descr }|.
+      lv_desc_line = |{ lv_desc_line }{ lv_separator }{ ls_header-descr }|.
+      lv_tech_line = |{ lv_tech_line }{ lv_separator }{ lv_rule_str }|.
     ENDIF.
   ENDLOOP.
-  APPEND lv_line TO lt_lines.
 
-  CLEAR lv_line.
-  LOOP AT gt_header_list INTO ls_header.
-
-    DATA(lv_rule_string) = ls_header-tech_name.
-
-    IF ls_header-is_mand = abap_on.
-      lv_rule_string = lv_rule_string && '*'.
-    ENDIF.
-    IF ls_header-is_pos = abap_on.
-      lv_rule_string = lv_rule_string && '+'.
-    ENDIF.
-    IF ls_header-rng_low IS NOT INITIAL OR ls_header-rng_high IS NOT INITIAL.
-      lv_rule_string = lv_rule_string && |[RNG:{ ls_header-rng_low }-{ ls_header-rng_high }]|.
-    ENDIF.
-    IF ls_header-val_list IS NOT INITIAL.
-      lv_rule_string = lv_rule_string && |[LIST:{ ls_header-val_list }]|.
-    ENDIF.
-
-    IF sy-tabix = 1.
-      lv_line = lv_rule_string.
-    ELSE.
-      lv_line = |{ lv_line }{ lv_separator }{ lv_rule_string }|.
-    ENDIF.
-  ENDLOOP.
-  APPEND lv_line TO lt_lines.
+  APPEND lv_desc_line TO gt_preview_lines.
+  APPEND lv_tech_line TO gt_preview_lines.
 
   IF <gfs_data> IS NOT ASSIGNED.
-    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s063 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -200,11 +175,6 @@ FORM rebuild_text_base64 USING    pv_file_type TYPE char10
         lv_val_str = |{ <lfs_value> }|.
 *        CONDENSE lv_val_str. !OBSOLETE SYNTAX
         lv_val_str = condense( val = lv_val_str ).
-
-        " RFC-style CSV: wrap field in double quotes when it contains the separator.
-        IF pv_file_type = gc_ftype_csv AND lv_val_str CS lv_separator.
-          lv_val_str = |"{ lv_val_str }"|.
-        ENDIF.
       ELSE.
         lv_val_str = ''.
       ENDIF.
@@ -216,12 +186,130 @@ FORM rebuild_text_base64 USING    pv_file_type TYPE char10
       ENDIF.
     ENDLOOP.
 
-    APPEND lv_line TO lt_lines.
+    APPEND lv_line TO gt_preview_lines.
   ENDLOOP.
 
-  PERFORM string_table_to_base64 USING lt_lines
+  PERFORM string_table_to_base64 USING gt_preview_lines
                                        pv_file_type
                                  CHANGING pv_base64.
+
+ENDFORM.
+
+
+*&---------------------------------------------------------------------*
+*& Form REBUILD_RAW_STRING_FROM_ALV
+*& FLUSH current page; rebuild GT_PREVIEW_LINES (descr row, rule row, then
+*& data rows from data_raw with CSV/TXT delimiter and padding).
+*&---------------------------------------------------------------------*
+FORM rebuild_raw_string_from_alv USING pv_ftype TYPE char10.
+
+  "First: flush current edits from the ALV into gt_master_sheets
+  "so in-memory sheet state matches what the user sees on screen
+  PERFORM flush_ws_to_master USING gv_current_page.
+
+  DATA: lv_desc_line TYPE string,
+        lv_tech_line TYPE string,
+        lv_line      TYPE string,
+        lv_separator TYPE char1,
+        lv_cur_row   TYPE i,
+        lv_rule_str  TYPE string.
+
+  " Pick delimiter by file type (CSV vs plain text)
+  IF pv_ftype = gc_ftype_csv.
+    lv_separator = ','.
+  ELSE.
+    lv_separator = cl_abap_char_utilities=>horizontal_tab. " Tab for TXT
+  ENDIF.
+
+  CLEAR gt_preview_lines.
+
+  " Read the active sheet from gt_master_sheets
+  READ TABLE gt_master_sheets INTO DATA(ls_master) INDEX 1.
+  IF sy-subrc <> 0.
+    MESSAGE s054 DISPLAY LIKE gc_displike_err.
+    RETURN.
+  ENDIF.
+
+  " Headers must follow physical column order
+  DATA(lt_header_sorted) = ls_master-header_list.
+  SORT lt_header_sorted BY col_pos.
+
+  " Build preview line 1: human-readable descriptions (DESCR)
+
+  LOOP AT lt_header_sorted INTO DATA(ls_header).
+
+    PERFORM build_tech_rule_string USING    ls_header
+                                   CHANGING lv_rule_str.
+
+    IF sy-tabix = 1.
+      lv_desc_line = ls_header-descr.
+      lv_tech_line = lv_rule_str.
+    ELSE.
+      lv_desc_line = |{ lv_desc_line }{ lv_separator }{ ls_header-descr }|.
+      lv_tech_line = |{ lv_tech_line }{ lv_separator }{ lv_rule_str }|.
+    ENDIF.
+
+  ENDLOOP.
+  APPEND lv_desc_line TO gt_preview_lines.
+  APPEND lv_tech_line TO gt_preview_lines.
+
+  " From row 3 onward: data lines from the sheet's coordinate table
+  " Sort cells by row/column so we can emit one text line per data row
+  DATA(lt_raw_sorted) = ls_master-data_raw.
+  SORT lt_raw_sorted BY row col.
+
+  LOOP AT lt_raw_sorted INTO DATA(ls_raw).
+    " New physical row in the sheet
+    IF lv_cur_row <> ls_raw-row.
+      " Flush the previous row buffer (if any)
+      IF lv_cur_row IS NOT INITIAL.
+        APPEND lv_line TO gt_preview_lines.
+      ENDIF.
+      lv_cur_row = ls_raw-row.
+      " Leading empty columns: pad with delimiters before first non-empty cell.
+      lv_line = repeat( val = lv_separator occ = ( ls_raw-col - 1 ) ).
+      lv_line = lv_line && ls_raw-value.
+    ELSE.
+      " Same row: append next cell value
+      lv_line = |{ lv_line }{ lv_separator }{ ls_raw-value }|.
+    ENDIF.
+  ENDLOOP.
+
+  " Append the last buffered data row
+  IF lv_cur_row IS NOT INITIAL.
+    APPEND lv_line TO gt_preview_lines.
+  ENDIF.
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form BUILD_TECH_RULE_STRING
+*& Builds technical rule string from a header definition, using the
+*& logic from rebuild_raw_string_from_alv as the standard.
+*&---------------------------------------------------------------------*
+FORM build_tech_rule_string USING    ps_header TYPE gty_data_header
+                            CHANGING pv_rule   TYPE string.
+
+  pv_rule = ps_header-tech_name.
+
+  IF ps_header-is_key = abap_on.
+    pv_rule = pv_rule && '[KEY]'.
+  ENDIF.
+
+  IF ps_header-is_mand = abap_on AND ps_header-is_key = abap_off.
+    pv_rule = pv_rule && '*'.
+  ENDIF.
+
+  IF ps_header-is_pos = abap_on.
+    pv_rule = pv_rule && '+'.
+  ENDIF.
+
+  IF ps_header-rng_low IS NOT INITIAL OR ps_header-rng_high IS NOT INITIAL.
+    pv_rule = pv_rule && |[RNG:{ ps_header-rng_low }~{ ps_header-rng_high }]|.
+  ENDIF.
+
+  IF ps_header-val_list IS NOT INITIAL.
+    pv_rule = pv_rule && |[LIST:{ ps_header-val_list }]|.
+  ENDIF.
 
 ENDFORM.
 
@@ -249,7 +337,7 @@ FORM string_table_to_base64 USING pt_lines TYPE string_table
       DATA(lo_conv) = cl_abap_conv_out_ce=>create( encoding = 'UTF-8' ).
       lo_conv->convert( EXPORTING data = lv_full_string IMPORTING buffer = lv_xstring ).
     CATCH cx_root.
-      MESSAGE s045(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s045 DISPLAY LIKE gc_displike_err.
       RETURN.
   ENDTRY.
 
@@ -262,7 +350,7 @@ FORM string_table_to_base64 USING pt_lines TYPE string_table
     EXCEPTIONS
       OTHERS  = 1.
   IF sy-subrc <> 0.
-    MESSAGE s046(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s046 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -324,19 +412,19 @@ FORM convert_file_to_base64  USING    pv_file_path   TYPE rlgrap-filename
       IF sy-subrc <> 0.
         gv_error = abap_on.
 
-        MESSAGE s046(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+        MESSAGE s046 DISPLAY LIKE gc_displike_err.
       ENDIF.
 
     ELSE.
       gv_error = abap_on.
-      MESSAGE s053(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s053 DISPLAY LIKE gc_displike_err.
     ENDIF.
   ENDIF.
 ENDFORM.
 
 *&---------------------------------------------------------------------*
 *& Form XSTRING_TO_BASE64
-*& Thin wrapper: SSFC_BASE64_ENCODE on PV_XSTRING into PV_FILE_BASE64.
+*& Thin wrapper: SSFC_BASE64_ENCODE on PV_XSTRING into PV_FILE_BASE64
 *&---------------------------------------------------------------------*
 FORM xstring_to_base64 USING pv_xstring        TYPE xstring
                        CHANGING pv_file_base64 TYPE string.
@@ -349,6 +437,6 @@ FORM xstring_to_base64 USING pv_xstring        TYPE xstring
     EXCEPTIONS
       OTHERS  = 1.
   IF sy-subrc <> 0.
-    MESSAGE s046(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s046 DISPLAY LIKE gc_displike_err.
   ENDIF.
 ENDFORM.

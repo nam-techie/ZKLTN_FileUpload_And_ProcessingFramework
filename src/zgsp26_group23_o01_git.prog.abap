@@ -84,20 +84,21 @@ FORM set_status_0100 .
       SET TITLEBAR gc_ttbar_t001 WITH TEXT-068.
     ENDIF.
 
+
   ELSEIF gv_plain_preview = abap_off.
     IF gv_edit_mode = abap_off.
-
       PERFORM build_exclude_view_raw CHANGING lt_excl.
       APPEND gc_ucomm_raw_cont TO lt_excl.
       SET PF-STATUS gc_stt_disp EXCLUDING lt_excl.
       SET TITLEBAR gc_ttbar_t001 WITH TEXT-069.
-    ELSE.
 
+    ELSE.
       PERFORM build_exclude_view_raw CHANGING lt_excl.
       APPEND gc_ucomm_raw_cont TO lt_excl.
       APPEND gc_ucomm_view_raw TO lt_excl.
       SET PF-STATUS gc_stt_change EXCLUDING lt_excl.
       SET TITLEBAR gc_ttbar_t001 WITH TEXT-070.
+
     ENDIF.
   ENDIF.
 
@@ -115,15 +116,17 @@ FORM build_exclude_view_raw CHANGING pt_excl TYPE ui_functions.
 
   DATA(lv_show) = abap_off.
 
-  IF gv_current_log_id IS NOT INITIAL.
     SELECT SINGLE file_type FROM zlog_header INTO @lv_db_ftype
-      WHERE log_id = @gv_current_log_id.
-    IF sy-subrc = 0.
-      lv_show = xsdbool( lv_db_ftype = gc_ftype_csv OR lv_db_ftype = gc_ftype_txt ).
-    ENDIF.
-  ELSE.
-    lv_show = xsdbool( p_ftype = gc_ftype_csv OR p_ftype = gc_ftype_txt ).
+      WHERE log_id     = @gv_current_log_id
+        AND is_deleted = @abap_off.
+
+  IF sy-subrc <> 0.
+    MESSAGE s080 DISPLAY LIKE gc_displike_err.
+    gv_error = abap_on.
+    LEAVE TO SCREEN 0.
   ENDIF.
+
+  lv_show = xsdbool( lv_db_ftype = gc_ftype_csv OR lv_db_ftype = gc_ftype_txt ).
 
   IF lv_show = abap_off.
     APPEND gc_ucomm_view_raw TO pt_excl.
@@ -148,7 +151,7 @@ ENDMODULE.
 
 *&---------------------------------------------------------------------*
 *& Module  INIT_0200  OUTPUT
-*& Skip when GV_ERROR; else build (or refresh) history ALV on first PBO pass.
+*& Skip when GV_ERROR; else build (or refresh) history ALV on first PBO pass
 *&---------------------------------------------------------------------*
 MODULE init_0200 OUTPUT.
   IF gv_error = abap_on.

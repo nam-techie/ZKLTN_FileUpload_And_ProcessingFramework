@@ -9,7 +9,6 @@
 *&          structure, vertical detail grid, page switch, cleanup.
 *&---------------------------------------------------------------------*
 
-
 *&---------------------------------------------------------------------*
 *& Section: Screen layout — containers, grids, event wiring
 *&---------------------------------------------------------------------*
@@ -32,45 +31,36 @@ ENDFORM.
 *& Create custom controls: tab area, main area, splitter 65/35 columns.
 *&---------------------------------------------------------------------*
 FORM init_containers.
+  go_cont_tabs     = NEW #( container_name = 'CC_TABS' ).
 
-  CREATE OBJECT go_cont_tabs
-    EXPORTING
-      container_name = 'CC_TABS'.
+  go_cont_main     = NEW #( container_name = 'CC_MAIN' ).
 
-  CREATE OBJECT go_cont_main
-    EXPORTING
-      container_name = 'CC_MAIN'.
+  go_toolbar_tabs  = NEW #( parent = go_cont_tabs ).
 
-  CREATE OBJECT go_toolbar_tabs
-    EXPORTING
-      parent = go_cont_tabs.
-
-  CREATE OBJECT go_split_main
-    EXPORTING
-      parent  = go_cont_main
-      rows    = 1
-      columns = 2.
+  go_split_main    = NEW #( parent  = go_cont_main
+                            rows    = 1
+                            columns = 2 ).
 
   go_cont_left  = go_split_main->get_container(
-    row = 1
-    column = 1
+            row = 1
+         column = 1
   ).
 
   go_cont_right = go_split_main->get_container(
-    row = 1
-    column = 2
+            row = 1
+         column = 2
   ).
 
   " Set splitter columns to relative sizing (percentage-based widths).
   go_split_main->set_column_mode( cl_gui_splitter_container=>mode_relative ).
 
   go_split_main->set_column_width(
-    id = 1
+       id = 1
     width = 65
   ).
 
   go_split_main->set_column_width(
-    id = 2
+       id = 2
     width = 35
   ).
 
@@ -85,21 +75,17 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM init_grids_and_editor.
 
-  CREATE OBJECT go_grid_master
-    EXPORTING
-      i_parent = go_cont_left.
+  go_grid_master = NEW #( i_parent = go_cont_left ).
 
-  CREATE OBJECT go_grid_detail
-    EXPORTING
-      i_parent = go_cont_right.
+  go_grid_detail = NEW #( i_parent = go_cont_right ).
 
   " Create text editor for raw CSV/TXT preview display.
-  CREATE OBJECT go_text_edit
-    EXPORTING
-      parent                     = go_cont_main
-      wordwrap_mode              = cl_gui_textedit=>wordwrap_at_fixed_position
-      wordwrap_position          = 255
-      wordwrap_to_linebreak_mode = cl_gui_textedit=>wordwrap_off.
+  go_text_edit   = NEW #(
+    parent                     = go_cont_main
+    wordwrap_mode              = cl_gui_textedit=>wordwrap_at_fixed_position
+    wordwrap_position          = 255
+    wordwrap_to_linebreak_mode = cl_gui_textedit=>wordwrap_off
+  ).
 
   " Set preview editor to read-only mode.
   go_text_edit->set_readonly_mode( cl_gui_textedit=>true ).
@@ -113,7 +99,7 @@ ENDFORM.
 FORM register_alv_events.
 
   IF go_alv_events IS NOT BOUND.
-    CREATE OBJECT go_alv_events.
+    go_alv_events = NEW #( ).
   ENDIF.
 
   SET HANDLER go_alv_events->on_tab_click FOR go_toolbar_tabs.
@@ -189,12 +175,10 @@ FORM trigger_alv_error USING    pv_data_changed  TYPE REF TO cl_alv_changed_data
                                 pv_msgv3         TYPE string
                                 pv_msgv4         TYPE string.
 
-
-  " Message class '00' / no '398' must expand to & & & & so MSGV1–4 show on popup.
   pv_data_changed->add_protocol_entry(
-    i_msgid     = '00'
-    i_msgty     = 'E'
-    i_msgno     = '398'
+    i_msgid     = '00'        " Message class (standard SAP)
+    i_msgty     = 'E'         " Message type: E = Error
+    i_msgno     = '398'       " Generic message number
 
     i_msgv1     = pv_msgv1
     i_msgv2     = pv_msgv2
@@ -210,7 +194,6 @@ FORM trigger_alv_error USING    pv_data_changed  TYPE REF TO cl_alv_changed_data
     i_fieldname = ps_mod_cell-fieldname
     i_value     = pv_old_value
   ).
-
 
 ENDFORM.
 
@@ -420,11 +403,29 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
         lv_new_name  TYPE string.
 
   DATA: lo_type TYPE REF TO cl_abap_typedescr,
-        lo_elem TYPE REF TO cl_abap_elemdescr.
+        lo_elem TYPE REF TO cl_abap_elemdescr,
+        lo_data TYPE REF TO cl_abap_datadescr.
 
   pt_comp = VALUE #( ( name = 'DATA_ROW'    type = cl_abap_elemdescr=>get_i( ) )
                      ( name = 'STATUS_ICON' type = cl_abap_elemdescr=>get_c( 4 ) )
                      ).
+
+  " Retrieve the type descriptor for LVC_T_SCOL, which is a table type
+  " used by ALV to define individual cell colors within a row.
+  CALL METHOD cl_abap_typedescr=>describe_by_name
+    EXPORTING
+      p_name      = 'LVC_T_SCOL'
+    RECEIVING
+      p_descr_ref = lo_type
+    EXCEPTIONS
+      OTHERS      = 1.
+  IF sy-subrc = 0.
+    " Cast the type descriptor to a data descriptor to append it
+    " as a dynamic component named 'CELL_COL' to our master ALV structure.
+    lo_data ?= lo_type.
+    APPEND VALUE #( name = 'CELL_COL' type = lo_data ) TO pt_comp.
+  ENDIF.
+
 
   SORT gt_master_sheets BY page_no.
   READ TABLE gt_master_sheets
@@ -434,7 +435,7 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
 
   IF sy-subrc <> 0.
     gv_error = abap_on.
-    MESSAGE: s036(zmsg_gr23) WITH gv_current_page DISPLAY LIKE gc_displike_err.
+    MESSAGE: s036 WITH gv_current_page DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -458,7 +459,7 @@ FORM build_master_struct CHANGING pt_comp TYPE cl_abap_structdescr=>component_ta
           lo_elem ?= lo_type.
           ls_comp-type = lo_elem.
         CATCH cx_sy_move_cast_error.
-          MESSAGE s060(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+          MESSAGE s060 DISPLAY LIKE gc_displike_err.
       ENDTRY.
 
       PERFORM handle_duplicated_tech_name USING lv_base_name
@@ -487,57 +488,94 @@ FORM build_master_data USING pv_struct TYPE REF TO cl_abap_structdescr.
   DATA: lv_dref_line TYPE REF TO data.
 
   CREATE DATA lv_dref_line TYPE HANDLE pv_struct.
-  FIELD-SYMBOLS: <lfs_m_row> TYPE any,
-                 <lfs_val>   TYPE any,
-                 <lfs_stat>  TYPE any.
+  FIELD-SYMBOLS: <lfs_m_row> TYPE any.
   ASSIGN lv_dref_line->* TO <lfs_m_row>.
 
   " One loop over data rows only (O(N)); no per-column inner loops here.
-
   IF <gfs_data> IS NOT ASSIGNED.
-    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s063 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
   LOOP AT <gfs_data> ASSIGNING FIELD-SYMBOL(<lfs_d_row>).
-    UNASSIGN <lfs_stat>.
+
     CLEAR <lfs_m_row>.
     DATA(lv_real_row) = sy-tabix + gc_data_start - 1.
 
     " Fast copy: identically named components from data row to master row;
     " custom columns (DATA_ROW, STATUS_ICON, ERR_COUNT) set explicitly below.
-*    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>.
+*    MOVE-CORRESPONDING <lfs_d_row> TO <lfs_m_row>. OBSOLETE SYNTAX
     <lfs_m_row> = CORRESPONDING #( <lfs_d_row> ).
-*    <lfs_d_row> = <lfs_m_row>. OBSOLETE SYNTAX
 
     " Custom columns (once per output row).
-    ASSIGN COMPONENT 'DATA_ROW' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
-    <lfs_val> = lv_real_row.
-
-    " Error count for this logical spreadsheet row.
-    DATA(lv_err_count) = 0.
-    LOOP AT gt_error_log TRANSPORTING NO FIELDS WHERE row_index = lv_real_row.
-      lv_err_count += 1.
-    ENDLOOP.
-
-    ASSIGN COMPONENT 'ERR_COUNT' OF STRUCTURE <lfs_m_row> TO <lfs_val>.
-    <lfs_val> = lv_err_count.
-
-    " Traffic light: errors / dirty / OK.
-    ASSIGN COMPONENT 'STATUS_ICON' OF STRUCTURE <lfs_m_row> TO <lfs_stat>.
-    IF <lfs_stat> IS ASSIGNED.
-
-      IF line_exists( gt_row_dirty[ page_no = gv_current_page data_row = lv_real_row ] ).
-        <lfs_stat> = icon_led_yellow.
-      ELSEIF lv_err_count > 0.
-        <lfs_stat> = icon_led_red.
-      ELSE.
-        <lfs_stat> = icon_led_green.
-      ENDIF.
-    ENDIF.
+    PERFORM build_master_row_meta USING    lv_real_row
+                                  CHANGING <lfs_m_row>.
 
     APPEND <lfs_m_row> TO <gfs_master>.
   ENDLOOP.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form APPLY_MASTER_ROW_META
+*&---------------------------------------------------------------------*
+FORM build_master_row_meta USING    pv_data_row TYPE i
+                           CHANGING ps_m_row    TYPE any.
+
+  FIELD-SYMBOLS:
+    <lv_data_row>  TYPE any,
+    <lv_err_count> TYPE any,
+    <lv_status>    TYPE any.
+
+  DATA(lv_err_count_val) = 0.
+
+  " Count errors
+  LOOP AT gt_error_log TRANSPORTING NO FIELDS
+       WHERE row_index = pv_data_row.
+    lv_err_count_val += 1.
+  ENDLOOP.
+
+  " Assign once per field
+  ASSIGN COMPONENT 'DATA_ROW'    OF STRUCTURE ps_m_row TO <lv_data_row>.
+  ASSIGN COMPONENT 'ERR_COUNT'   OF STRUCTURE ps_m_row TO <lv_err_count>.
+  ASSIGN COMPONENT 'STATUS_ICON' OF STRUCTURE ps_m_row TO <lv_status>.
+
+  " Check if field is assigned
+  IF <lv_data_row> IS ASSIGNED.
+    <lv_data_row> = pv_data_row.
+  ENDIF.
+
+  IF <lv_err_count> IS ASSIGNED.
+    <lv_err_count> = lv_err_count_val.
+  ENDIF.
+
+  IF <lv_status> IS ASSIGNED.
+    <lv_status> =
+      COND #(
+        WHEN line_exists( gt_row_dirty[
+             page_no = gv_current_page
+             data_row = pv_data_row ] )
+          THEN icon_led_yellow
+
+        WHEN lv_err_count_val > 0
+          THEN icon_led_red
+
+        ELSE icon_led_green
+      ).
+  ENDIF.
+
+  " Highlight ERR_COUNT cell in red if there are any errors for this row.
+  IF lv_err_count_val > 0.
+    " Dynamically assign the CELL_COL component we added to the structure earlier.
+    ASSIGN COMPONENT 'CELL_COL' OF STRUCTURE ps_m_row TO FIELD-SYMBOL(<lfs_cell_col>).
+    IF sy-subrc = 0.
+      " Populate the cell color table:
+      " fname = 'ERR_COUNT' targets the specific column.
+      " color-col = 6 applies the red color (negative state).
+      " color-int = 1 applies intensified color.
+      <lfs_cell_col> = VALUE lvc_t_scol( ( fname = 'ERR_COUNT' color-col = 6 color-int = 1 ) ).
+    ENDIF.
+  ENDIF.
 
 ENDFORM.
 
@@ -560,12 +598,14 @@ FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
   ps_layo-sel_mode   = 'A'.
   ps_layo-grid_title = TEXT-026.
 
+  " Inform the ALV layout that the 'CELL_COL' field contains the cell color
+  " configuration table for each row. This links our data logic to the UI rendering.
+  ps_layo-ctab_fname = 'CELL_COL'.
+
   pt_fcat = VALUE #(
     ( fieldname = 'DATA_ROW'
       coltext   = TEXT-027
       col_pos   = 1
-*      hotspot   = abap_on
-*      key       = abap_on
       just      = 'C' )
 
     ( fieldname = 'STATUS_ICON'
@@ -585,9 +625,9 @@ FORM build_master_fcat CHANGING pt_fcat    TYPE lvc_t_fcat
 
     lv_base_name = ls_hdr-tech_name.
 
-    PERFORM handle_duplicated_tech_name USING lv_base_name
-                                   lt_comp
-                         CHANGING  lv_new_name.
+    PERFORM handle_duplicated_tech_name USING    lv_base_name
+                                                 lt_comp
+                                        CHANGING lv_new_name.
     ls_comp-name = lv_new_name.
     APPEND ls_comp TO lt_comp.
 
@@ -678,14 +718,19 @@ FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
             ls_vert-dd_hndl = lv_dh.
             CLEAR lt_values.
             SPLIT ls_hdr-val_list AT ';' INTO TABLE lt_values.
+            DELETE ADJACENT DUPLICATES FROM lt_values COMPARING table_line.
             LOOP AT lt_values INTO lv_val.
               IF lv_val IS NOT INITIAL.
                 APPEND VALUE #( handle = lv_dh value = lv_val ) TO gt_drop_detail.
-                IF lines( lt_values ) = 1.
-                  APPEND VALUE #( handle = lv_dh value = lv_val ) TO gt_drop_detail.
-                ENDIF.
+              ENDIF.
+
+              IF lines( lt_values ) = 1 AND ls_hdr-is_mand = abap_on.
+                APPEND VALUE #( handle = lv_dh value = lv_val ) TO gt_drop_detail.
               ENDIF.
             ENDLOOP.
+            IF ls_hdr-is_mand = abap_off.
+              APPEND VALUE #( handle = lv_dh value = space ) TO gt_drop_detail.
+            ENDIF.
           ENDIF.
 
           " Calendar hotspot icon for DATE-like components.
@@ -695,30 +740,48 @@ FORM build_vertical_data CHANGING pv_has_error TYPE abap_bool.
           ENDIF.
 
           " Concatenate validation messages for this row/column.
-          DATA: lv_full_error TYPE string.
-          CLEAR lv_full_error.
-
-          LOOP AT gt_error_log INTO DATA(ls_err)
-               WHERE row_index = gv_selected_data_row
-                 AND col_pos   = ls_hdr-col_pos.
-            IF lv_full_error IS INITIAL.
-              lv_full_error = ls_err-message.
-            ELSE.
-              lv_full_error = lv_full_error && ', ' && ls_err-message.
-            ENDIF.
-          ENDLOOP.
-
-          IF lv_full_error IS NOT INITIAL.
-            ls_vert-error_msg = lv_full_error.
-            pv_has_error      = abap_on.
-            ls_vert-cell_col  = VALUE #( ( fname = 'VALUE'     color-col = 6 color-int = 1 color-inv = 0 )
-                                         ( fname = 'ERROR_MSG' color-col = 6 color-int = 1 color-inv = 0 ) ).
-          ENDIF.
+          PERFORM compute_cell_error USING    gv_selected_data_row
+                                              ls_hdr-col_pos
+                                     CHANGING ls_vert-error_msg
+                                              pv_has_error
+                                              ls_vert-cell_col.
 
           APPEND ls_vert TO gt_vertical_data.
         ENDIF.
       ENDLOOP.
     ENDIF.
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*& Form COMPUTE_CELL_ERROR
+*&---------------------------------------------------------------------*
+FORM compute_cell_error USING    pv_data_row  TYPE i
+                                 pv_col_pos   TYPE i
+                        CHANGING pv_error_msg TYPE string
+                                 pv_has_error TYPE abap_bool
+                                 pt_cell_col  TYPE lvc_t_scol.
+
+  DATA: lv_full_error TYPE string.
+  CLEAR: lv_full_error, pv_error_msg, pt_cell_col.
+
+  LOOP AT gt_error_log INTO DATA(ls_err)
+       WHERE row_index = pv_data_row
+         AND col_pos   = pv_col_pos.
+    IF lv_full_error IS INITIAL.
+      lv_full_error = ls_err-message.
+    ELSE.
+      lv_full_error = lv_full_error && ', ' && ls_err-message.
+    ENDIF.
+  ENDLOOP.
+
+  pv_error_msg = lv_full_error.
+
+  IF lv_full_error IS NOT INITIAL.
+    pv_has_error = abap_on.
+    pt_cell_col = VALUE #( ( fname = 'VALUE'     color-col = 6 color-int = 1 color-inv = 0 )
+                           ( fname = 'ERROR_MSG' color-col = 6 color-int = 1 color-inv = 0 ) ).
   ENDIF.
 
 ENDFORM.
@@ -739,7 +802,6 @@ FORM display_detail_first_time USING pv_has_error TYPE abap_bool.
 
   lt_fcat_dt = VALUE #(
     ( fieldname = 'DESCR'     coltext = |{ TEXT-034 }| col_pos = 1 outputlen = 40 )
-*    ( fieldname = 'FIELDNAME' coltext = |{ TEXT-035 }| col_pos = 2 outputlen = 15 no_out = abap_on )
     ( fieldname = 'VALUE'     coltext = |{ TEXT-036 }| col_pos = 2 outputlen = 30
       edit      = gv_edit_mode drdn_alias = abap_on drdn_field = 'DD_HNDL' )
     ( fieldname = 'DD_HNDL'   coltext = ''             col_pos = 3 outputlen = 30 no_out = abap_on tech = abap_on )
@@ -872,7 +934,9 @@ FORM free_alv_objects.
 
   FREE go_alv_events.
 
-  IF gv_dref_master IS BOUND.  FREE gv_dref_master.  ENDIF.
+  IF gv_dref_master IS BOUND.
+    FREE gv_dref_master.
+  ENDIF.
 
   UNASSIGN <gfs_master>.
 
@@ -884,31 +948,27 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM show_detail_alv_error_popup USING pv_error_msg TYPE string.
 
-  CONSTANTS lc_line_max TYPE i VALUE 80.
-
-  DATA: lt_popup_lines TYPE TABLE OF char100,
-        lv_msg_len     TYPE i,
-        lv_offset      TYPE i,
-        lv_take        TYPE i,
+  DATA: lt_msg_parts   TYPE TABLE OF string,
+        lt_popup_lines TYPE TABLE OF char100,
+        lv_part        TYPE string,
         ls_popup_line  TYPE char100.
 
-  lv_msg_len = strlen( pv_error_msg ).
-  lv_offset = 0.
+  SPLIT pv_error_msg AT ',' INTO TABLE lt_msg_parts.
 
-  WHILE lv_offset < lv_msg_len.
-    lv_take = nmin( val1 = lv_msg_len - lv_offset
-                    val2 = lc_line_max ).
+  LOOP AT lt_msg_parts INTO lv_part.
+
+    lv_part = condense( val = lv_part ).
+
+    IF lv_part IS INITIAL.
+      CONTINUE.
+    ENDIF.
 
     CLEAR ls_popup_line.
-    ls_popup_line = substring(
-      val = pv_error_msg
-      off = lv_offset
-      len = lv_take
-    ).
+    ls_popup_line = lv_part.
 
     APPEND ls_popup_line TO lt_popup_lines.
-    lv_offset = lv_offset + lv_take.
-  ENDWHILE.
+
+  ENDLOOP.
 
   CALL FUNCTION 'POPUP_WITH_TABLE_DISPLAY'
     EXPORTING

@@ -36,7 +36,7 @@ FORM main_process .
   ELSEIF p_val = abap_on.
     IF p_local = abap_on.
       IF p_ftype = gc_ftype_xlsx.
-        " PC path: XLSX via FDT wrapper (Y_READ_EXCEL_SHEET_SAFE inside F01).
+        " PC path: XLSX via FDT wrapper (Z_READ_EXCEL_SHEET_SAFE inside F01).
         PERFORM read_excel_local USING p_file lv_xstring.
       ELSE.
         " PC path: CSV/TXT lines (or XSTRING from DB on retry — see F01).
@@ -45,11 +45,12 @@ FORM main_process .
     ELSE.
       IF p_ftype = gc_ftype_xlsx.
         " Application server path: binary read + same FDT sheet loop as local.
-        PERFORM read_excel_server USING p_file CHANGING lv_file_base64.
+        PERFORM read_excel_server USING    p_file
+                                  CHANGING lv_file_base64.
       ELSE.
         " Application server path: UTF-8 text + Base64 side output.
-        PERFORM read_text_server USING p_file p_ftype
-                               CHANGING lv_file_base64.
+        PERFORM read_text_server USING    p_file p_ftype
+                                 CHANGING lv_file_base64.
       ENDIF.
     ENDIF.
 
@@ -57,7 +58,7 @@ FORM main_process .
       IF gt_preview_lines IS NOT INITIAL.
         gv_plain_preview = abap_on.
       ELSE.
-        MESSAGE s058(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+        MESSAGE s058 DISPLAY LIKE gc_displike_err.
       ENDIF.
 
       " Persist upload metadata (type + optional Base64) before dynpro.
@@ -73,26 +74,18 @@ FORM main_process .
 
       IF p_ftype = gc_ftype_xlsx.
         " Application server path: binary read + same FDT sheet loop as local.
-        PERFORM read_excel_server USING p_file CHANGING lv_file_base64.
+        PERFORM read_excel_server USING    p_file
+                                  CHANGING lv_file_base64.
       ELSE.
         " Application server path: UTF-8 text + Base64 side output.
-        PERFORM read_text_server USING p_file p_ftype
-                               CHANGING lv_file_base64.
+        PERFORM read_text_server USING    p_file p_ftype
+                                 CHANGING lv_file_base64.
       ENDIF.
-
     ENDIF.
 
-    CHECK lv_file_base64 IS NOT INITIAL.
-
-*    IF p_ftype = gc_ftype_csv OR p_ftype = gc_ftype_txt.
-*
-*      PERFORM read_text_local USING p_file p_ftype lv_xstring.
-*
-*      IF gt_preview_lines IS NOT INITIAL.
-*        gv_plain_preview = abap_on.
-*        CALL SCREEN 100.
-*      ENDIF.
-*    ENDIF.
+    IF lv_file_base64 IS INITIAL.
+      RETURN.
+    ENDIF.
 
     PERFORM save_log USING p_ftype lv_file_base64.
   ENDIF.
@@ -117,20 +110,12 @@ FORM build_dynamic_data USING pv_sheet_name       TYPE string
   ENDIF.
 
   DATA: lt_comp         TYPE cl_abap_structdescr=>component_table,
-        lo_struct       TYPE REF TO cl_abap_structdescr,
-        lv_sheet_prefix TYPE string.
+        lo_struct       TYPE REF TO cl_abap_structdescr.
 
   " Gather components and check for structure errors
   PERFORM get_dynamic_components USING    pv_sheet_name
                                  CHANGING lt_comp
                                           pt_header_errors.
-
-*  " If we caught any header errors, print them and stop here
-*  IF pt_header_errors IS NOT INITIAL.
-*    PERFORM display_header_errors USING lv_sheet_prefix
-*                                        pt_header_errors.
-*    RETURN.
-*  ENDIF.
 
   " Create the dynamic internal table based on the components
   PERFORM generate_dynamic_table USING    lt_comp
@@ -273,10 +258,20 @@ FORM add_header_error USING    pv_err_msg TYPE string
                       CHANGING pt_header_errors TYPE string_table.
 
   IF pv_sheet_prefix IS NOT INITIAL.
-    READ TABLE pt_header_errors TRANSPORTING NO FIELDS WITH KEY table_line = |-[{ pv_sheet_prefix }]|.
+
+    DATA(lv_sheet_msg) = replace(
+      val  = TEXT-152
+      sub  = '&'
+      with = pv_sheet_prefix
+    ).
+
+    READ TABLE pt_header_errors TRANSPORTING NO FIELDS
+      WITH KEY table_line = lv_sheet_msg.
+
     IF sy-subrc <> 0.
-      APPEND |-[{ pv_sheet_prefix }]| TO pt_header_errors.
+      APPEND lv_sheet_msg TO pt_header_errors.
     ENDIF.
+
   ENDIF.
 
 
@@ -296,36 +291,6 @@ FORM build_header_rule_msg USING    pv_col_pos TYPE i
 
 ENDFORM.
 
-**&---------------------------------------------------------------------*
-**& Form DISPLAY_HEADER_ERRORS
-**& Prints collected structure errors to the screen
-**& (sets GV_ERROR so callers stop; list report style WRITE output).
-**&---------------------------------------------------------------------*
-*FORM display_header_errors USING pv_sheet_prefix  TYPE string
-*                                 pt_header_errors TYPE string_table.
-*
-*  DATA: lv_hdr_line TYPE string,
-*        lv_err_msg  TYPE string.
-*
-*  gv_error = abap_on.
-*
-*  lv_hdr_line = TEXT-045.
-*  IF pv_sheet_prefix IS NOT INITIAL.
-*    lv_hdr_line = |{ lv_hdr_line } { pv_sheet_prefix }|.
-*  ENDIF.
-*
-*  " Highlight the error header
-*  WRITE: / lv_hdr_line COLOR COL_NEGATIVE INVERSE ON.
-*
-*  " Print each collected error
-*  LOOP AT pt_header_errors INTO lv_err_msg.
-*    WRITE: / '-', lv_err_msg COLOR COL_NEGATIVE.
-*  ENDLOOP.
-*
-*  WRITE: / |{ TEXT-046 }|.
-*
-*ENDFORM.
-
 *&---------------------------------------------------------------------*
 *& Form GENERATE_DYNAMIC_TABLE
 *& Defines the structure and allocates memory for the dynamic table
@@ -344,7 +309,7 @@ FORM generate_dynamic_table USING    pt_comp   TYPE cl_abap_structdescr=>compone
     CATCH cx_root.
       " This rarely happens unless the renaming logic above is flawed
       gv_error = abap_on.
-      MESSAGE s010(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s010 DISPLAY LIKE gc_displike_err.
       RETURN.
   ENDTRY.
 
@@ -405,7 +370,6 @@ FORM fill_dynamic_data USING pv_struct TYPE REF TO cl_abap_structdescr.
 
             PERFORM add_error USING ls_raw-row
                                     ls_raw-col
-                                    <lfs_header>-tech_name
                                     lv_error_msg.
           ENDIF.
       ENDTRY.
@@ -465,7 +429,7 @@ FORM lock_data CHANGING pv_locked TYPE abap_bool.
 
   DATA lv_varkey TYPE rstable-varkey.
 
-  " Build the lock key using client and current log ID.
+  " Build the lock key using client and current log ID
   lv_varkey = sy-mandt && gv_current_log_id.
 
   " Request an exclusive edit lock before entering change mode.
@@ -481,7 +445,7 @@ FORM lock_data CHANGING pv_locked TYPE abap_bool.
 
   IF sy-subrc <> 0.
     " Reject edit mode immediately if the lock cannot be obtained.
-    MESSAGE s068(zmsg_gr23) WITH sy-uname gv_current_log_id DISPLAY LIKE gc_displike_err.
+    MESSAGE s068 WITH sy-uname gv_current_log_id DISPLAY LIKE gc_displike_err.
     pv_locked = abap_on.
   ENDIF.
 

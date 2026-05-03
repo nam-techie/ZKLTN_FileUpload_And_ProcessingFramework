@@ -15,7 +15,7 @@
 *&---------------------------------------------------------------------*
 *& Form REVERSE_MAP_TO_RAW
 *& Walk <gfs_data> and current sheet header_list: update or append cells in
-*& <lfs_master>-data_raw so raw coordinates match latest ALV edits (for log JSON).
+*& <lfs_master>-data_raw so raw coordinates match latest ALV edits (for log base64).
 *&---------------------------------------------------------------------*
 FORM reverse_map_to_raw.
 
@@ -33,12 +33,12 @@ FORM reverse_map_to_raw.
        WITH KEY page_no = gv_current_page BINARY SEARCH.
 
   IF sy-subrc <> 0.
-    MESSAGE s039(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s039 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
   IF <gfs_data> IS NOT ASSIGNED.
-    MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s063 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -56,7 +56,6 @@ FORM reverse_map_to_raw.
       ASSIGN COMPONENT ls_header-col_pos OF STRUCTURE <lfs_line> TO <lfs_value>.
 
       IF sy-subrc = 0 AND <lfs_value> IS ASSIGNED.
-
         " Normalize to string for storage in coordinate table.
         DATA: lv_string_val TYPE string.
         lv_string_val = <lfs_value>.
@@ -159,121 +158,4 @@ FORM load_page_to_workspace USING pv_page_no TYPE i.
     UNASSIGN <gfs_data>.
   ENDIF.
 
-ENDFORM.
-
-*&---------------------------------------------------------------------*
-*& Section: Plain-text preview rebuild from in-memory sheet
-*&---------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*& Form REBUILD_RAW_STRING_FROM_ALV
-*& FLUSH current page; rebuild GT_PREVIEW_LINES (descr row, rule row, then
-*& data rows from data_raw with CSV/TXT delimiter and padding).
-*&---------------------------------------------------------------------*
-FORM rebuild_raw_string_from_alv USING pv_ftype TYPE char10.
-
-  "First: flush current edits from the ALV into gt_master_sheets
-  "so in-memory sheet state matches what the user sees on screen
-  PERFORM flush_ws_to_master USING gv_current_page.
-
-  DATA: lv_line      TYPE string,
-        lv_separator TYPE char1,
-        lv_cur_row   TYPE i.
-
-  " Pick delimiter by file type (CSV vs plain text)
-  IF pv_ftype = gc_ftype_csv.
-    lv_separator = ','. " Could be ';' depending on locale / export rules
-  ELSE.
-    lv_separator = cl_abap_char_utilities=>horizontal_tab. " Tab for TXT
-  ENDIF.
-
-  CLEAR gt_preview_lines.
-
-  " Read the active sheet from gt_master_sheets
-  " (CSV/TXT flows often use a single sheet - still use current page)
-  SORT gt_master_sheets BY page_no.
-  READ TABLE gt_master_sheets INTO DATA(ls_master) WITH KEY page_no = gv_current_page BINARY SEARCH.
-  IF sy-subrc <> 0.
-    " Missing row - likely inconsistent state; fall back to first sheet
-    READ TABLE gt_master_sheets INTO ls_master INDEX 1.
-    IF sy-subrc <> 0.
-      MESSAGE s054(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-      RETURN.
-    ENDIF.
-  ENDIF.
-
-  " Headers must follow physical column order
-  DATA(lt_header_sorted) = ls_master-header_list.
-  SORT lt_header_sorted BY col_pos.
-
-  " Build preview line 1: human-readable descriptions (DESCR)
-  CLEAR lv_line.
-  LOOP AT lt_header_sorted INTO DATA(ls_hdr).
-    IF sy-tabix = 1.
-      lv_line = ls_hdr-descr.
-    ELSE.
-      lv_line = |{ lv_line }{ lv_separator }{ ls_hdr-descr }|.
-    ENDIF.
-  ENDLOOP.
-  APPEND lv_line TO gt_preview_lines.
-
-  "Build preview line 2: rule string (TECH_NAME + *, +, [KEY], [RNG], [LIST])
-  CLEAR lv_line.
-  LOOP AT lt_header_sorted INTO ls_hdr.
-
-    DATA(lv_rule) = ls_hdr-tech_name.
-
-    " Re-append validation flags to the technical name
-    IF ls_hdr-is_mand = abap_on.
-      lv_rule = lv_rule && '*'.
-    ENDIF.
-    IF ls_hdr-is_pos = abap_on.
-      lv_rule = lv_rule && '+'.
-    ENDIF.
-    IF ls_hdr-is_key = abap_on.
-      lv_rule = lv_rule && '[KEY]'.
-    ENDIF.
-    IF ls_hdr-rng_low IS NOT INITIAL OR ls_hdr-rng_high IS NOT INITIAL.
-      lv_rule = lv_rule && |[RNG:{ ls_hdr-rng_low }-{ ls_hdr-rng_high }]|.
-    ENDIF.
-    IF ls_hdr-val_list IS NOT INITIAL.
-      lv_rule = lv_rule && |[LIST:{ ls_hdr-val_list }]|.
-    ENDIF.
-
-    IF sy-tabix = 1.
-      lv_line = lv_rule.
-    ELSE.
-      lv_line = |{ lv_line }{ lv_separator }{ lv_rule }|.
-    ENDIF.
-  ENDLOOP.
-  APPEND lv_line TO gt_preview_lines.
-
-  " From row 3 onward: data lines from the sheet's coordinate table
-  " Sort cells by row/column so we can emit one text line per data row
-  DATA(lt_raw_sorted) = ls_master-data_raw.
-  SORT lt_raw_sorted BY row col.
-
-  CLEAR: lv_cur_row, lv_line.
-
-  LOOP AT lt_raw_sorted INTO DATA(ls_raw).
-    " New physical row in the sheet
-    IF lv_cur_row <> ls_raw-row.
-      " Flush the previous row buffer (if any)
-      IF lv_cur_row IS NOT INITIAL.
-        APPEND lv_line TO gt_preview_lines.
-      ENDIF.
-      lv_cur_row = ls_raw-row.
-      " Leading empty columns: pad with delimiters before first non-empty cell
-      lv_line = repeat( val = lv_separator occ = ( ls_raw-col - 1 ) ).
-      lv_line = lv_line && ls_raw-value.
-    ELSE.
-      " Same row: append next cell value
-      lv_line = |{ lv_line }{ lv_separator }{ ls_raw-value }|.
-    ENDIF.
-  ENDLOOP.
-
-  " Append the last buffered data row
-  IF lv_cur_row IS NOT INITIAL.
-    APPEND lv_line TO gt_preview_lines.
-  ENDIF.
 ENDFORM.

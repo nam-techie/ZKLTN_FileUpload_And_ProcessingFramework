@@ -22,12 +22,6 @@ FORM view_history_screen.
 
   PERFORM load_history_data.
 
-  " No rows -> warning and stay on selection screen.
-  IF sy-subrc <> 0 OR gt_history_list IS INITIAL.
-    MESSAGE s001(zmsg_gr23) DISPLAY LIKE gc_displike_warn. " No data for selection
-    RETURN.
-  ENDIF.
-
   CALL SCREEN 0200.
 
 ENDFORM.
@@ -78,18 +72,19 @@ FORM build_history_alv_grid.
   " Initialize container + grid only once per session.
   IF go_cont_hist IS NOT BOUND.
 
-    CREATE OBJECT go_cont_hist
-      EXPORTING
-        container_name = 'CC_HISTORY'.
+    go_cont_hist = NEW #(
+      container_name = 'CC_HISTORY'
+    ).
 
-    CREATE OBJECT go_grid_hist
-      EXPORTING
-        i_parent = go_cont_hist.
+    go_grid_hist = NEW #(
+      i_parent = go_cont_hist
+    ).
 
     " Layout: sel_mode 'D' allows Ctrl+click multi row selection (batch download).
     ls_layout-zebra      = abap_on.
     ls_layout-cwidth_opt = abap_on.
     ls_layout-sel_mode   = 'D'.
+    ls_layout-ctab_fname = 'CELL_COL'.
 
     lv_history_count = lines( gt_history_list ).
     PERFORM get_history_grid_title USING    p_date
@@ -106,7 +101,7 @@ FORM build_history_alv_grid.
       ( fieldname = 'TOTAL_SHEET' coltext = TEXT-013 just = 'R' )
       ( fieldname = 'TOTAL_REC'   coltext = TEXT-011 just = 'R' )
       ( fieldname = 'SUCC_REC'    coltext = TEXT-012 just = 'R' )
-      ( fieldname = 'ERR_REC'     coltext = TEXT-014 just = 'R' emphasize = 'C610' )
+      ( fieldname = 'ERR_REC'     coltext = TEXT-014 just = 'R' )
       ( fieldname = 'ERDAT'       coltext = TEXT-015 just = 'C' )
       ( fieldname = 'ERZET'       coltext = TEXT-016 just = 'C' )
       ( fieldname = 'ERNAM'       coltext = TEXT-017 just = 'C' )
@@ -117,7 +112,7 @@ FORM build_history_alv_grid.
 
     " Register double-click on history grid (open log / download path in C00).
     IF go_alv_events IS NOT BOUND.
-      CREATE OBJECT go_alv_events.
+      go_alv_events = NEW #( ).
     ENDIF.
     SET HANDLER go_alv_events->on_hist_grid_double_click FOR go_grid_hist.
 
@@ -127,7 +122,7 @@ FORM build_history_alv_grid.
         is_layout            = ls_layout
         it_toolbar_excluding = lt_exclude
       CHANGING
-        it_outtab            = gt_history_list
+        it_outtab            = gt_hist_alv
         it_fieldcatalog      = lt_fcat ).
     cl_gui_cfw=>flush( ).
 
@@ -160,7 +155,7 @@ FORM process_download_batch.
   lv_count = lines( lt_rows ).
 
   IF lv_count = 0.
-    MESSAGE s029(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s029 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -173,7 +168,7 @@ FORM process_download_batch.
 
     READ TABLE gt_history_list INTO ls_hist INDEX ls_row-index.
     IF sy-subrc <> 0.
-      MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s047 DISPLAY LIKE gc_displike_err.
       RETURN.
     ENDIF.
 
@@ -223,7 +218,7 @@ FORM download_multiple_files_zip USING pt_rows  TYPE lvc_t_row
       user_action        = lv_action ).
 
   IF lv_action <> cl_gui_frontend_services=>action_ok.
-    MESSAGE s048(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s048 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -253,7 +248,6 @@ FORM download_multiple_files_zip USING pt_rows  TYPE lvc_t_row
       FROM zlog_item AS db
       INNER JOIN @lt_log_keys AS keys
         ON db~log_id = keys~log_id
-      WHERE db~item_no = 0
       INTO TABLE @lt_log_data.
   ENDIF.
 
@@ -284,7 +278,7 @@ FORM download_multiple_files_zip USING pt_rows  TYPE lvc_t_row
 
   " Stop if we couldn't parse any files to zip
   IF lv_success_count = 0.
-    MESSAGE s031(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s031 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -306,7 +300,7 @@ FORM download_multiple_files_zip USING pt_rows  TYPE lvc_t_row
       OTHERS                  = 1 ).
 
   IF sy-subrc = 0.
-    MESSAGE s032(zmsg_gr23) WITH lv_success_count lv_filename DISPLAY LIKE gc_displike_suc.
+    MESSAGE s032 WITH lv_success_count lv_filename.
   ENDIF.
 
 ENDFORM.
@@ -327,45 +321,36 @@ FORM process_history_selected USING pv_logid TYPE zlog_header-log_id.
   gv_edit_mode = abap_off.
 
   SELECT SINGLE file_type FROM zlog_header INTO @lv_ftype
-    WHERE log_id = @pv_logid.
+    WHERE log_id     = @pv_logid
+      AND is_deleted = @abap_off.
   IF sy-subrc <> 0.
-    MESSAGE s024(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s080 DISPLAY LIKE gc_displike_err.
     "Refresh Hitory list if some data was not found.
     PERFORM refresh_history_alv.
     RETURN.
   ENDIF.
 
+  CLEAR gv_error.
+  PERFORM reload_data_from_db USING pv_logid.
+
+  IF gv_error = abap_on.
+    RETURN.
+  ENDIF.
+
+  CLEAR gv_data_dirty.
+  CLEAR gt_row_dirty.
+
   IF lv_ftype = gc_ftype_csv OR lv_ftype = gc_ftype_txt.
-
-    CLEAR gv_error.
-    PERFORM load_preview_lines_from_log USING pv_logid.
-    IF gt_preview_lines IS INITIAL.
-      MESSAGE s058(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-      RETURN.
-    ENDIF.
-
-    CLEAR gv_data_dirty.
-    CLEAR gt_row_dirty.
     gv_plain_preview = abap_on.
-
     CALL SCREEN 100.
-
     CLEAR gv_plain_preview.
-    PERFORM refresh_history_alv.
 
   ELSE.
-
-    PERFORM reload_data_from_db USING pv_logid.
-
-    IF gv_error = abap_off.
-      CLEAR gv_data_dirty.
-      CLEAR gt_row_dirty.
-
-      CALL SCREEN 100.
-
-      PERFORM refresh_history_alv.
-    ENDIF.
+    CALL SCREEN 100.
   ENDIF.
+
+  PERFORM refresh_history_alv.
+
 ENDFORM.
 
 *&---------------------------------------------------------------------*
@@ -379,38 +364,19 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM download_file USING pv_log_id TYPE zlog_header-log_id.
 
-*  SORT gt_history_list BY log_id.
-*
-*  READ TABLE gt_history_list INTO DATA(ls_hist)
-*    WITH KEY log_id = pv_log_id
-*    BINARY SEARCH.
-
   DATA ls_hist TYPE zlog_header.
 
   SELECT SINGLE
-         mandt,
-         log_id,
-         file_type,
-         file_name,
-         total_rec,
-         succ_rec,
-         total_sheet,
-         err_rec,
-         category,
-         erdat,
-         erzet,
-         ernam,
-         aedat,
-         aezet,
-         aenam,
-         is_deleted
+       log_id,
+       file_type,
+       file_name
     FROM zlog_header
     WHERE log_id = @pv_log_id
-      AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
+      AND ( is_deleted = @abap_off OR is_deleted IS INITIAL )
     INTO CORRESPONDING FIELDS OF @ls_hist.
 
   IF sy-subrc <> 0.
-    MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s080 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -449,7 +415,7 @@ FORM download_template_zip.
       AND srtf2 = 0.
 
   IF sy-subrc <> 0.
-    MESSAGE e020(zmsg_gr23).
+    MESSAGE s020 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -468,7 +434,7 @@ FORM download_template_zip.
 
   IF lv_action = cl_gui_frontend_services=>action_ok.
 
-    " Push binary from SMW0 to the path chosen by the user.
+    " Push binary from SMW0 to the path chosen by the user
     CALL FUNCTION 'DOWNLOAD_WEB_OBJECT'
       EXPORTING
         key         = ls_wwwdata
@@ -477,9 +443,9 @@ FORM download_template_zip.
         OTHERS      = 1.
 
     IF sy-subrc = 0.
-      MESSAGE s021(zmsg_gr23).
+      MESSAGE s021.
     ELSE.
-      MESSAGE e022(zmsg_gr23).
+      MESSAGE e022.
     ENDIF.
   ENDIF.
 ENDFORM.
@@ -500,7 +466,7 @@ FORM process_delete_batch.
   lv_count = lines( lt_rows ).
 
   IF lv_count = 0.
-    MESSAGE s065(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
+    MESSAGE s065 DISPLAY LIKE gc_displike_warn.
     RETURN.
   ENDIF.
 
@@ -532,13 +498,11 @@ FORM process_delete_batch.
   PERFORM refresh_history_alv.
 
   IF lv_deleted_cnt = 1.
-    MESSAGE s066(zmsg_gr23).
+    MESSAGE s066.
   ELSE.
-    MESSAGE s067(zmsg_gr23) WITH lv_deleted_cnt DISPLAY LIKE gc_displike_suc.
+    MESSAGE s067 WITH lv_deleted_cnt DISPLAY LIKE gc_displike_suc.
   ENDIF.
 
-
-*  MESSAGE s066(zmsg_gr23).
 ENDFORM.
 
 *&---------------------------------------------------------------------*
@@ -557,7 +521,7 @@ FORM load_history_data.
 
   IF p_ftype2 <> '*'.
     DATA(lv_prog_val) = COND zlog_header-file_type(
-                          WHEN p_ftype2 = gc_ftype_xlsx THEN gc_ftype_excel
+                          WHEN p_ftype2 = gc_ftype_xlsx THEN gc_ftype_xlsx
                           WHEN p_ftype2 = gc_ftype_csv  THEN gc_ftype_csv
                           WHEN p_ftype2 = gc_ftype_txt  THEN gc_ftype_txt
                           ELSE p_ftype2 ).
@@ -585,9 +549,29 @@ FORM load_history_data.
     WHERE ernam = @sy-uname
       AND erdat IN @lt_r_date
       AND file_type IN @lt_r_prog
-      AND ( is_deleted = @abap_false OR is_deleted IS INITIAL )
+      AND ( is_deleted = @abap_off OR is_deleted IS INITIAL )
     ORDER BY erdat DESCENDING, erzet DESCENDING
     INTO CORRESPONDING FIELDS OF TABLE @gt_history_list.
+
+  gt_hist_alv = CORRESPONDING #( gt_history_list ).
+
+  LOOP AT gt_hist_alv ASSIGNING FIELD-SYMBOL(<ls_hist_alv>).
+
+    CLEAR <ls_hist_alv>-cell_col.
+
+    IF <ls_hist_alv>-err_rec > 0.
+      APPEND VALUE #( fname = 'ERR_REC'
+                      color = VALUE #( col = 6 int = 1 ) )
+        TO <ls_hist_alv>-cell_col.
+    ENDIF.
+
+  ENDLOOP.
+
+  " No rows -> warning and stay on selection screen.
+  IF sy-subrc <> 0.
+    MESSAGE s001 DISPLAY LIKE gc_displike_warn. " No data for selection
+    RETURN.
+  ENDIF.
 
 ENDFORM.
 
@@ -641,18 +625,17 @@ FORM download_log_file USING ps_hist TYPE zlog_header.
       OTHERS            = 1 ).
 
   IF lv_action <> cl_gui_frontend_services=>action_ok OR sy-subrc <> 0.
-    MESSAGE s048(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s048 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
   SELECT SINGLE raw_data
     FROM zlog_item
     INTO @DATA(lv_base64)
-    WHERE log_id  = @ps_hist-log_id
-      AND item_no = 0.
+    WHERE log_id  = @ps_hist-log_id.
 
   IF lv_base64 IS INITIAL.
-    MESSAGE s047(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s047 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -675,9 +658,9 @@ FORM download_log_file USING ps_hist TYPE zlog_header.
       OTHERS       = 1 ).
 
   IF sy-subrc = 0.
-    MESSAGE s050(zmsg_gr23) WITH lv_filename.
+    MESSAGE s050 WITH lv_filename.
   ELSE.
-    MESSAGE s051(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s051 DISPLAY LIKE gc_displike_err.
   ENDIF.
 
 ENDFORM.

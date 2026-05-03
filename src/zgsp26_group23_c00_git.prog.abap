@@ -3,8 +3,8 @@
 *----------------------------------------------------------------------*
 
 *----------------------------------------------------------------------*
-* Role     Local event-handler class for ALV grids in program ZGSP26_*
-*           GROUP23 (master left, detail right, history, toolbar).
+* Role     Local event-handler class for ALV grids in program          *
+*           (master left, detail right, history, toolbar).
 * Contents lcl_alv_events: tab page switch, master double-click,
 *           detail data_changed, history double-click, date hotspot.
 *----------------------------------------------------------------------*
@@ -62,7 +62,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
                    <lfs_data_row>   TYPE any.
 
     IF <gfs_master> IS NOT ASSIGNED.
-      MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s063 DISPLAY LIKE gc_displike_err.
       RETURN.
     ENDIF.
 
@@ -87,7 +87,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
     READ TABLE gt_history_list INTO DATA(ls_hist) INDEX e_row-index.
     IF sy-subrc = 0.
       IF ls_hist-category = gc_stored_file.
-        MESSAGE s028(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
+        MESSAGE s028 DISPLAY LIKE gc_displike_warn.
         RETURN.
       ENDIF.
       gv_current_log_id = ls_hist-log_id.
@@ -109,17 +109,23 @@ CLASS lcl_alv_events IMPLEMENTATION.
     ENDIF.
 
     " Calendar flow applies only to the F4/search icon column.
-    CHECK e_column_id-fieldname = 'F4_ICON'.
+    IF e_column_id-fieldname <> 'F4_ICON'.
+      RETURN.
+    ENDIF.
 
     " Block date F4 while display-only (no edits allowed).
-    CHECK gv_edit_mode = abap_on.
+    IF gv_edit_mode = abap_off.
+      RETURN.
+    ENDIF.
 
     " Detail row key: ES_ROW_NO-ROW_ID (not E_ROW_ID / LVC_S_ROW without ROW_ID).
     READ TABLE gt_vertical_data INTO DATA(ls_vert) INDEX es_row_no-row_id.
     IF sy-subrc <> 0. RETURN. ENDIF.
 
     " Icon marks date-capable rows; ignore hotspot on blank icon.
-    CHECK ls_vert-f4_icon IS NOT INITIAL.
+    IF ls_vert-f4_icon IS INITIAL.
+      RETURN.
+    ENDIF.
 
     " Seed F4 initial month from cell value when plausible, else SY-DATUM.
     DATA: lv_date_sel TYPE sy-datum.
@@ -151,7 +157,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
     DATA(lv_tabix) = gv_selected_data_row - gc_data_start + 1.
 
     IF <gfs_data> IS NOT ASSIGNED.
-      MESSAGE s063(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+      MESSAGE s063 DISPLAY LIKE gc_displike_err.
       RETURN.
     ENDIF.
 
@@ -166,7 +172,7 @@ CLASS lcl_alv_events IMPLEMENTATION.
     INSERT VALUE #( page_no = gv_current_page data_row = gv_selected_data_row ) INTO TABLE gt_row_dirty.
 
     " Mirror manual edit path: row validation, master rebuild, grids refresh.
-    PERFORM revalidate_single_row USING lv_tabix gv_selected_data_row.
+    PERFORM revalidate_single_row USING lv_tabix.
 
     PERFORM prepare_master_alv_data.
 

@@ -53,7 +53,6 @@ MODULE user_command_0100 INPUT.
       PERFORM process_save.
 
     WHEN gc_ucomm_change.
-
       gv_edit_mode = abap_on.
       PERFORM switch_alv_mode.
 
@@ -81,35 +80,26 @@ FORM process_view_raw.
   DATA: lv_ans_disp    TYPE char1,
         lv_parse_ftype TYPE char10.
 
-  CLEAR lv_parse_ftype.
-  IF gv_current_log_id IS NOT INITIAL.
-    SELECT SINGLE file_type FROM zlog_header INTO @lv_parse_ftype
-      WHERE log_id = @gv_current_log_id.
-    IF sy-subrc = 0 AND lv_parse_ftype <> gc_ftype_csv AND lv_parse_ftype <> gc_ftype_txt.
-      RETURN.
-    ENDIF.
-    IF sy-subrc <> 0 AND p_ftype <> gc_ftype_csv AND p_ftype <> gc_ftype_txt.
-      RETURN.
-    ENDIF.
-  ELSE.
-    IF p_ftype <> gc_ftype_csv AND p_ftype <> gc_ftype_txt.
-      RETURN.
-    ENDIF.
-  ENDIF.
 
-  IF gv_current_log_id IS INITIAL.
-    MESSAGE s055(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-    RETURN.
+
+  CLEAR lv_parse_ftype.
+
+  SELECT SINGLE file_type FROM zlog_header INTO @lv_parse_ftype
+    WHERE log_id = @gv_current_log_id.
+
+  IF sy-subrc <> 0.
+    MESSAGE s080 DISPLAY LIKE gc_displike_err.
+    LEAVE TO SCREEN 0.
   ENDIF.
 
   IF go_grid_detail IS BOUND. go_grid_detail->check_changed_data( ). ENDIF.
 
-  IF gv_data_dirty = abap_true.
+  IF gv_data_dirty = abap_on.
     PERFORM show_popup_confirm USING TEXT-056
                                      TEXT-057
                                      TEXT-058
                                      TEXT-059
-                                     abap_true
+                                     abap_on
                                CHANGING lv_ans_disp.
   ENDIF.
 
@@ -120,8 +110,13 @@ FORM process_view_raw.
     PERFORM prepare_master_alv_data.
     PERFORM prepare_detail_alvs.
 
-    IF go_grid_master IS BOUND. go_grid_master->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ). ENDIF.
-    IF go_grid_detail IS BOUND. go_grid_detail->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ). ENDIF.
+    IF go_grid_master IS BOUND.
+      go_grid_master->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ).
+    ENDIF.
+
+    IF go_grid_detail IS BOUND.
+      go_grid_detail->refresh_table_display( is_stable = VALUE #( row = abap_on col = abap_on ) ).
+    ENDIF.
 
     gv_edit_mode = abap_off.
     PERFORM switch_alv_mode.
@@ -151,13 +146,22 @@ FORM process_save.
   "Check if raw file was changed?
   PERFORM is_raw_file_changed.
 
-  IF gv_data_dirty = abap_false.
-    MESSAGE s056(zmsg_gr23) DISPLAY LIKE gc_displike_warn.
+  IF gv_data_dirty = abap_off.
+    MESSAGE s056 DISPLAY LIKE gc_displike_warn.
     RETURN.
   ENDIF.
 
-  SELECT SINGLE log_id, category, file_type FROM zlog_header INTO CORRESPONDING FIELDS OF @ls_header
-  WHERE log_id = @gv_current_log_id.
+    SELECT SINGLE log_id,
+                  category,
+                  file_type
+      FROM zlog_header INTO CORRESPONDING FIELDS OF @ls_header
+      WHERE log_id     = @gv_current_log_id
+        AND is_deleted = @abap_off.
+
+  IF sy-subrc <> 0.
+    MESSAGE s080 DISPLAY LIKE gc_displike_err.
+    LEAVE TO SCREEN 0.
+  ENDIF.
 
 
   CLEAR lv_ans_save.
@@ -165,7 +169,7 @@ FORM process_save.
                                    TEXT-061
                                    TEXT-058
                                    TEXT-021
-                                   abap_false
+                                   abap_off
                              CHANGING lv_ans_save.
   IF lv_ans_save = '1'.
 
@@ -187,43 +191,12 @@ FORM process_save.
 
     ENDIF.
 
+    IF gv_error = abap_on.
+      CLEAR gv_error.
+      RETURN.
+    ENDIF.
+
     PERFORM process_save_data.
-*    IF gv_plain_preview = abap_on.
-*
-*      IF gv_current_log_id IS NOT INITIAL.
-*
-*        SELECT SINGLE log_id, category, file_type FROM zlog_header INTO CORRESPONDING FIELDS OF @ls_header
-*          WHERE log_id = @gv_current_log_id.
-*
-*        SELECT SINGLE log_id, raw_data FROM zlog_item INTO CORRESPONDING FIELDS OF @ls_item
-*          WHERE log_id = @gv_current_log_id
-*            AND item_no = 0.
-*
-*        PERFORM get_text_from_editor.
-*
-*        PERFORM string_table_to_base64 USING gt_preview_lines
-*                                             ls_header-file_type
-*                                       CHANGING ls_item-raw_data.
-*
-*        MODIFY zlog_item FROM ls_item.
-*
-*        gv_edit_mode = abap_off.
-*        go_text_edit->set_readonly_mode( cl_gui_textedit=>true ).
-*
-*        IF ls_header-category <> gc_stored_file.
-*          CLEAR gt_row_dirty.
-*          PERFORM continue_from_raw_preview.
-*          CLEAR gv_data_dirty.
-*        ENDIF.
-*
-*        IF gv_current_log_id IS INITIAL.
-*          MESSAGE s055(zmsg_gr23) DISPLAY LIKE gc_displike_err.
-*          RETURN.
-*        ENDIF.
-*      ENDIF.
-*    ELSE.
-*      PERFORM process_save_data.
-*    ENDIF.
   ENDIF.
 ENDFORM.
 
@@ -233,7 +206,7 @@ ENDFORM.
 *&---------------------------------------------------------------------*
 FORM process_btn_down_100.
   IF gv_current_log_id IS INITIAL.
-    MESSAGE s057(zmsg_gr23) DISPLAY LIKE gc_displike_err.
+    MESSAGE s057 DISPLAY LIKE gc_displike_err.
     RETURN.
   ENDIF.
 
@@ -255,29 +228,31 @@ FORM process_display.
   "Check if raw file was changed?
   PERFORM is_raw_file_changed.
 
-  IF gv_data_dirty = abap_false.
-    gv_edit_mode = abap_false.
+  IF gv_data_dirty = abap_off.
+    gv_edit_mode = abap_off.
     PERFORM switch_alv_mode.
 
   ELSE.
-    SELECT SINGLE log_id, category, file_type FROM zlog_header INTO CORRESPONDING FIELDS OF @ls_header
-      WHERE log_id = @gv_current_log_id.
+    SELECT SINGLE log_id,
+                  category,
+                  file_type
+      FROM zlog_header INTO CORRESPONDING FIELDS OF @ls_header
+      WHERE log_id     = @gv_current_log_id
+        AND is_deleted = @abap_off.
+
+    IF sy-subrc <> 0.
+      MESSAGE s080 DISPLAY LIKE gc_displike_err.
+      LEAVE TO SCREEN 0.
+    ENDIF.
 
     CLEAR lv_ans_disp.
 
-*    IF ls_header-category <> gc_stored_file.
-*    IF ls_header-category <> gc_stored_file AND gv_plain_preview = abap_off.
-*    IF ls_header-category = gc_stored_file OR ls_header-file_type = gc_ftype_xlsx.
     PERFORM show_popup_confirm USING TEXT-056
                                      TEXT-062
                                      TEXT-058
                                      TEXT-059
-                                     abap_true
+                                     abap_on
                            CHANGING lv_ans_disp.
-*    ELSEIF ls_header-category <> gc_stored_file AND gv_plain_preview = abap_on.
-*      gv_edit_mode = abap_off.
-*      PERFORM switch_alv_mode.
-*    ENDIF.
 
     IF lv_ans_disp = '1'.
 
@@ -299,12 +274,18 @@ FORM process_display.
 
       ENDIF.
 
+      IF gv_error = abap_on.
+        CLEAR gv_error.
+        RETURN.
+      ENDIF.
+
       PERFORM process_save_data.
 
     ELSEIF lv_ans_disp = '2'.
       IF gv_plain_preview = abap_on.
+        gt_preview_lines = gt_preview_snapshot.
         PERFORM show_raw_preview_ui.
-        gv_edit_mode = abap_false.
+        gv_edit_mode = abap_off.
         PERFORM switch_alv_mode.
         CLEAR gv_data_dirty.
       ELSE.
@@ -313,7 +294,7 @@ FORM process_display.
         PERFORM prepare_master_alv_data.
         PERFORM prepare_detail_alvs.
 
-        gv_edit_mode = abap_false.
+        gv_edit_mode = abap_off.
         PERFORM switch_alv_mode.
         CLEAR: gv_data_dirty, gt_row_dirty.
       ENDIF.
@@ -330,13 +311,15 @@ FORM process_exit_screen.
 
   DATA lv_ans_exit TYPE char1.
 
-  IF gv_edit_mode = abap_true AND gv_data_dirty = abap_true.
+  PERFORM is_raw_file_changed.
+
+  IF gv_edit_mode = abap_on AND gv_data_dirty = abap_on.
     CLEAR lv_ans_exit.
     PERFORM show_popup_confirm USING TEXT-063
                                      TEXT-064
                                      TEXT-065
                                      TEXT-066
-                                     abap_false
+                                     abap_off
                                CHANGING lv_ans_exit.
 
     " Stay on screen when user chooses No / Cancel
@@ -384,7 +367,7 @@ MODULE user_command_0200 INPUT.
 ENDMODULE.
 
 *&---------------------------------------------------------------------*
-*& Form PROCESS_EXIT_HISTORY_SCREEN
+*& Form PROCESS_EXIT_HISTORY_SCREEN.
 *& BACK: free history grid + container then LEAVE TO SCREEN 0; else LEAVE PROGRAM.
 *&---------------------------------------------------------------------*
 FORM process_exit_history_screen USING pv_okcode TYPE sy-ucomm.

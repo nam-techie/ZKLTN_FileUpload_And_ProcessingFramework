@@ -3,35 +3,35 @@
 *&---------------------------------------------------------------------*
 *&
 *&---------------------------------------------------------------------*
-REPORT zgsp26_gr23_kltn_git.
+REPORT zgsp26_group23_kltn MESSAGE-ID ZMSG_GR23.
 
-INCLUDE zgsp26_group23_t01_git. "Top Include
+INCLUDE zgsp26_group23_t01. "Top Include
 
-INCLUDE zgsp26_group23_s01_git. "Main Screen
+INCLUDE zgsp26_group23_s01. "Main Screen
 
-INCLUDE zgsp26_group23_c00_git. "Class Definition
+INCLUDE zgsp26_group23_c00. "Class Definition
 
-INCLUDE zgsp26_group23_f00_git. "ALV UI Management Routines
+INCLUDE zgsp26_group23_f00. "ALV UI Management Routines
 
-INCLUDE zgsp26_group23_f01_git. "File I/O Routines
+INCLUDE zgsp26_group23_f01. "File I/O Routines
 
-INCLUDE zgsp26_group23_f02_git. "Validation Routines
+INCLUDE zgsp26_group23_f02. "Validation Routines
 
-INCLUDE zgsp26_group23_f03_git. "Main Process Flow
+INCLUDE zgsp26_group23_f03. "Main Process Flow
 
-INCLUDE zgsp26_group23_f04_git. "History & Download Routines
+INCLUDE zgsp26_group23_f04. "History & Download Routines
 
-INCLUDE zgsp26_group23_f05_git. "Database & Logging Routines
+INCLUDE zgsp26_group23_f05. "Database & Logging Routines
 
-INCLUDE zgsp26_group23_f06_git. "Encoding & File Rebuild Routines
+INCLUDE zgsp26_group23_f06. "Encoding & File Rebuild Routines
 
-INCLUDE zgsp26_group23_f07_git. "Utility Routines
+INCLUDE zgsp26_group23_f07. "Utility Routines
 
-INCLUDE zgsp26_group23_f08_git. "Data Processing & Sheet Management
+INCLUDE zgsp26_group23_f08. "Data Processing & Sheet Management
 
-INCLUDE zgsp26_group23_i01_git. "Process After Input
+INCLUDE zgsp26_group23_i01. "Process After Input
 
-INCLUDE zgsp26_group23_o01_git. "Process Before Output
+INCLUDE zgsp26_group23_o01. "Process Before Output
 
 START-OF-SELECTION.
   PERFORM main_process.

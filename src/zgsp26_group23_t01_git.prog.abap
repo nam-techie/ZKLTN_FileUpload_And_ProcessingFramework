@@ -22,7 +22,6 @@ CONSTANTS: gc_header_row     TYPE i        VALUE 1,
            gc_ftype_xlsx     TYPE char10   VALUE 'XLSX',
            gc_ftype_csv      TYPE char10   VALUE 'CSV',
            gc_ftype_txt      TYPE char10   VALUE 'TXT',
-           gc_ftype_excel    TYPE char10   VALUE 'EXCEL',
            gc_ttbar_t001     TYPE char10   VALUE 'T001',
            gc_ttbar_t002     TYPE char10   VALUE 'T002',
            gc_stt_disp       TYPE char20   VALUE 'SSTATUS_DISPLAY',
@@ -64,8 +63,6 @@ TYPES: gty_t_data_cell TYPE STANDARD TABLE OF gty_data_cell WITH EMPTY KEY.
 TYPES: BEGIN OF gty_error_log,
          col_pos   TYPE i,
          row_index TYPE i,
-         fieldname TYPE fieldname,
-         msg_type  TYPE bapi_mtype,
          message   TYPE bapi_msg,
          raw_data  TYPE string,
        END OF gty_error_log.
@@ -81,7 +78,6 @@ TYPES: BEGIN OF gty_master_sheet,
          data_raw    TYPE gty_t_data_cell,    " Slot 2: raw cells with row/column coordinates
          dref_data   TYPE REF TO data,         " Slot 3: reference to dynamic result table
          error_log   TYPE gty_t_error_log,     " Slot 4: validation / processing error log
-         is_parsed   TYPE abap_bool,           " Flag: this sheet was already validated
        END OF gty_master_sheet.
 
 *----------------------------------------------------------------------*
@@ -107,8 +103,7 @@ DATA: gv_current_log_id TYPE zlog_header-log_id.
 
 * Variable mutiple sheet
 DATA: gt_master_sheets TYPE TABLE OF gty_master_sheet, " All loaded sheets (main workbook state)
-      gv_current_page  TYPE i VALUE 1,                 " Currently displayed sheet index
-      gv_total_pages   TYPE i.                         " Total number of sheets
+      gv_current_page  TYPE i VALUE 1.                 " Currently displayed sheet index
 
 
 *----------------------------------------------------------------------*
@@ -178,6 +173,13 @@ DATA gt_row_dirty TYPE HASHED TABLE OF gty_dirty_line WITH UNIQUE KEY page_no da
 * DATA FOR HISTORY SCREEN
 *----------------------------------------------------------------------*
 DATA: gt_history_list TYPE TABLE OF zlog_header. " Loaded history header rows
+
+TYPES: BEGIN OF gty_hist_alv.
+         INCLUDE TYPE zlog_header.
+TYPES:   cell_col TYPE lvc_t_scol,
+       END OF gty_hist_alv.
+
+DATA gt_hist_alv TYPE STANDARD TABLE OF gty_hist_alv.
 
 * --- New history screen (screen 200) ---
 DATA: go_cont_hist TYPE REF TO cl_gui_custom_container,
